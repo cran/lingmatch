@@ -8,42 +8,72 @@ texts = c(
 )
 
 test_that('lma_process works', {
+  expect_error(lma_process(function(){}))
+  expect_error(lma_process(0))
   files = c(tempfile(fileext = '.txt'), tempfile(fileext = '.txt'))
   dtm = as.data.frame(lma_dtm(texts, sparse = FALSE))
   meta = lma_meta(texts)
   colnames(meta) = paste0('meta_', colnames(meta))
   manual = cbind(text = texts, dtm, meta)
-  expect_equal(lma_process(texts), manual)
+  expect_identical(lma_process(texts), manual)
   pr = lma_process(lma_patcat(
     texts, dict = lma_dict(as.regex = FALSE), return.dtm = TRUE, fixed = FALSE, globtoregex = TRUE
-  ))
-  expect_equal(pr, lma_process(texts, dict = lma_dict(as.regex = FALSE), return.dtm = TRUE, fixed = FALSE,
-    globtoregex = TRUE)[, names(pr)])
+  ), weight = 'count')
+  expect_identical(pr, lma_process(texts, dict = lma_dict(as.regex = FALSE), fixed = FALSE,
+    globtoregex = TRUE, weight = 'count', drop.zeros = FALSE)[, names(pr)])
   write(texts[1], files[1])
   write(texts[2], files[2])
-  expect_equal(lma_process(files)[, -(1:3)], manual)
-  expect_equal(lma_process(read.segments(files))[, -(1:3)], manual)
-  expect_equal(as.numeric(lma_termcat(texts[1])), as.numeric(lma_termcat(files[1])))
-  expect_equal(as.numeric(lma_patcat(texts[1])), as.numeric(lma_patcat(files[1])))
+  expect_identical(lma_process(files)[, -(1:3)], manual)
+  expect_identical(lma_process(read.segments(files))[, -(1:3)], manual)
+  expect_identical(as.numeric(lma_termcat(texts[1])), as.numeric(lma_termcat(files[1])))
+  expect_identical(as.numeric(lma_patcat(texts[1])), as.numeric(lma_patcat(files[1])))
   file.remove(files)
   manual[, colnames(dtm)] = lma_weight(dtm, 'tfidf', normalize = FALSE)
-  expect_equal(lma_process(texts, weight = 'tfidf', normalize = FALSE), manual)
+  expect_identical(lma_process(texts, weight = 'tfidf', normalize = FALSE), manual)
   wmeta = meta
   wmeta[, c(9, 14:23)] = wmeta[, c(9, 14:23)] / wmeta$meta_words
-  expect_equal(lma_process(texts, weight = 'count')[, colnames(meta)], wmeta)
+  expect_identical(lma_process(texts, weight = 'count')[, colnames(meta)], wmeta)
   termcat = as.data.frame(lma_termcat(lma_weight(dtm)))
-  expect_equal(lma_process(texts, weight = 'count', dict = lma_dict(1:9), meta = FALSE)[, -1], termcat)
-  expect_equal(lma_process(dtm, weight = 'count', dict = lma_dict(1:9), meta = FALSE), termcat)
-  expect_equal(as.numeric(lma_process(dtm, dim.cutoff = .1)[, 1]), as.numeric(lma_lspace(dtm, dim.cutoff = .1)))
+  expect_identical(lma_process(texts, weight = 'count', dict = lma_dict(1:9), meta = FALSE)[, -1], termcat)
+  expect_identical(lma_process(dtm, weight = 'count', dict = lma_dict(1:9), meta = FALSE), termcat)
+  expect_identical(as.numeric(lma_process(dtm, dim.cutoff = .1)[, 1]), as.numeric(lma_lspace(dtm, dim.cutoff = .1)))
+  expect_identical(
+    as.matrix(lma_process(dtm, dim.cutoff = .1, keep.dim = TRUE)),
+    lma_lspace(dtm, dim.cutoff = .1, keep.dim = TRUE)
+  )
+  dict = list(ab = c('a', 'b'), c = 'c')
+  expect_identical(
+    lma_process(list(a = c(1, 0), b = c(2, 1), c = c(3, 2)), dict = dict),
+    lma_process(list('a b b c c c', 'c c b'), dict = dict)[, names(dict)],
+  )
+})
+
+test_that('lma_process works with a single text', {
+  dtm = as.data.frame(lma_dtm(texts[1], sparse = FALSE))
+  pr = lma_process(lma_patcat(
+    texts[1], dict = lma_dict(as.regex = FALSE), return.dtm = TRUE, fixed = FALSE, globtoregex = TRUE
+  ), weight = 'count')
+  expect_identical(pr, lma_process(texts[1], dict = lma_dict(as.regex = FALSE), fixed = FALSE,
+    globtoregex = TRUE, weight = 'count')[, names(pr)])
+  termcat = as.data.frame(lma_termcat(lma_weight(dtm)))
+  expect_identical(lma_process(texts[1], weight = 'count', dict = lma_dict(1:9), meta = FALSE)[, -1], termcat)
+  expect_identical(lma_process(dtm, weight = 'count', dict = lma_dict(1:9), meta = FALSE), termcat)
+  dict = list(ab = c('a', 'b'), c = 'c')
+  expect_identical(
+    lma_process(c(a = 1, b = 2, c = 3), dict = dict),
+    lma_process(list('a b b c c c'), dict = dict)[, names(dict)],
+  )
 })
 
 test_that('lma_dict works', {
-  expect_equal(names(lma_dict(c('ppron', 'adv'))), c('ppron', 'adverb'))
-  expect_equal(lma_dict(as.function = TRUE)(c('fefe', 'and', 'sksk')), c(FALSE, TRUE, FALSE))
-  expect_equal('wdk kdls loe (cc)', lma_dict(special, as.function = gsub)('wdk \u0137dls lo\u00cb \u00A9'))
+  expect_identical(names(lma_dict(c('ppron', 'adv'))), c('ppron', 'adverb'))
+  expect_identical(lma_dict(as.function = TRUE)(c('fefe', 'and', 'sksk')), c(FALSE, TRUE, FALSE))
+  expect_identical('wdk kdls loe (cc)', lma_dict(special, as.function = gsub)('wdk \u0137dls lo\u00cb \u00A9'))
 })
 
 test_that('read/write.dic works', {
+  expect_error(read.dic(0))
+  expect_error(read.dic(matrix(0)))
   file_dic = tempfile(fileext = '.dic')
   file_csv = tempfile(fileext = '.csv')
   dict = list(
@@ -53,7 +83,7 @@ test_that('read/write.dic works', {
     faces = c(': )', ':(', ':]', ': [', ': }', ':{')
   )
   write.dic(dict, file_dic)
-  expect_equal(read.dic(file_dic), dict)
+  expect_identical(read.dic(file_dic), dict)
   expect_true(all(vapply(read.dic(file_dic, type = 'term'), function(cat){
     sum(grepl(paste(cat, collapse = '|'), unlist(dict))) >= length(cat)
   }, TRUE)))
@@ -67,11 +97,11 @@ test_that('read/write.dic works', {
   ), as.weighted = TRUE), dict_weighted)
   files = sub('^.*\\\\', '', c(file_dic, file_csv))
   dir = sub('\\\\[^\\]+$', '', file_dic)
-  expect_true(all(read.dic(files, dir = dir) == read.dic(list(dict_weighted, dict_weighted))))
+  expect_identical(unname(read.dic(files, dir = dir)), unname(read.dic(list(dict_weighted, dict_weighted))))
   expect_equal(dim(dict_weighted), c(length(unique(unlist(dict))), length(dict) + 1))
-  expect_equal(write.dic(dict, file_dic, as.weighted = TRUE), dict_weighted)
-  expect_equal(read.dic(file_dic, as.weighted = FALSE), dict)
-  expect_equal(read.dic(file_dic), dict_weighted)
+  expect_identical(write.dic(dict, file_dic, as.weighted = TRUE), dict_weighted)
+  expect_identical(read.dic(file_dic, as.weighted = FALSE), dict)
+  expect_identical(read.dic(file_dic), dict_weighted)
   wdict = data.frame(
     term = sample(unlist(dict, use.names = FALSE), 50),
     cat1 = rnorm(50), cat2 = rpois(50, 1)
@@ -79,7 +109,7 @@ test_that('read/write.dic works', {
   write.dic(wdict, file_csv)
   expect_equal(read.dic(file_csv), wdict)
   expect_equivalent(read.dic(files, dir = dir), read.dic(list(dict, wdict)))
-  expect_equal(
+  expect_identical(
     read.dic(list(a = c(1, 2, 3), b = c(0, 2, 4))),
     read.dic(data.frame(a = c(1, 2, 3), b = c(0, 2, 4)))
   )
@@ -90,31 +120,58 @@ test_that('read/write.dic works', {
     neutral = c('what', 'hey'),
     negative = c('bad', 'horrible')
   )
-  expect_equal(dict, read.dic(data.frame(unlist(dict, use.names = FALSE),
+  expect_identical(dict, read.dic(data.frame(unlist(dict, use.names = FALSE),
     c(1, 1.5, 0, 0, -1, -1.5))))
-  expect_equal(dict[c(1, 3)], read.dic(data.frame(unlist(dict[c(1, 3)], use.names = FALSE),
+  expect_identical(dict[c(1, 3)], read.dic(data.frame(unlist(dict[c(1, 3)], use.names = FALSE),
     c(1, 1.5, -1, -1.5))))
-  expect_equal(c(a = dict, b = dict)[c(3, 2, 1, 6, 5, 4)], read.dic(data.frame(unlist(dict, use.names = FALSE),
+  expect_identical(c(a = dict, b = dict)[c(3, 2, 1, 6, 5, 4)], read.dic(data.frame(unlist(dict, use.names = FALSE),
     a = c(1, 1.5, 0, 0, -1, -1.5), b = c(1, 1.5, 0, 0, -1, -1.5))))
-  expect_equal(read.dic(data.frame(
+  expect_identical(read.dic(data.frame(
     term = unlist(dict, use.names = FALSE), sentiment = rep(c(1, 0, -1), each = 2)
   )), dict)
-  expect_equal(read.dic(data.frame(
+  expect_identical(read.dic(data.frame(
     term = unlist(dict, use.names = FALSE), category = rep(names(dict), each = 2)
   ))[names(dict)], dict)
   dicts = select.dict(dir = '~/Dictionaries')$info
   if(!is.na(d <- which(dicts$downloaded != '')[1])) expect_equal(
     read.dic(rownames(dicts)[d]), read.dic(dicts[d, 'downloaded'])
   )
-  expect_equal(
-    data.frame(term = c('a', 'b', 'c', 'f', 'g'), a = c(1, 2, 3, 0, 0), b = c(4, 0, 0, 5, 0),
-      row.names = c('a', 'b', 'c', 'f', 'g')),
-    read.dic(list(a = c(a = 1, b = 2, c = 3), b = c(a = 4, f = 5, g = 0)))
+  dict = dict2 = data.frame(term = c('a', 'b', 'c', 'f', 'g'), a = c(1, 2, 3, 0, 0), b = c(4, 0, 0, 5, 0),
+    row.names = c('a', 'b', 'c', 'f', 'g'))
+  expect_identical(dict, read.dic(list(a = c(a = 1, b = 2, c = 3), b = c(a = 4, f = 5, g = 0))))
+  dict2[5, 3] = NA
+  expect_identical(dict, read.dic(dict2, as.weighted = TRUE))
+  expect_identical(dict, read.dic(dict[, -1], as.weighted = TRUE))
+  expect_identical(list(x = dict$term), read.dic(data.frame(dict$term, 'x')))
+  dict[, -1] = rep(c(1, 2, 1), c(2, 5, 3))
+  dict2 = list(a = c('c', 'f', 'g'), b = c('a', 'b'))
+  expect_identical(dict2, read.dic(dict))
+  expect_identical(dict2, read.dic(cbind(dict, letters[1:5])))
+  expect_identical(read.dic(list(c('a', 'b'), NULL), cats = 'cat1'), list(cat1 = c('a', 'b')))
+  expect_identical(read.dic(list(c('a', 'b'), c('c', 'd')), cats = 'cat1'), list(cat1 = c('a', 'b')))
+  expect_identical(unname(read.dic(list(dict2, dict2))), unname(unlist(list(dict2, dict2), FALSE)))
+  dict2 = data.frame(dict, dict[, -1])
+  dict2[5, 2] = 1.5
+  expect_identical(
+    unname(read.dic(list(rbind(dict, data.frame(term = 'g', a = 1, b =1)), dict), as.weighted = TRUE)),
+    unname(dict2)
   )
+  dict = list(a = c('a', 'b'), b = c('c', 'd'))
+  expect_identical(read.dic(as.data.frame(dict)), dict)
+  dict = data.frame(t = c('a', 'b', 'c'), c1 = c('a', 'a', 'b'), c2 = c('b', 'a', 'a'))
+  expect_identical(read.dic(dict), as.list(dict)[c('c1', 'c2', 't')])
+  dict = data.frame(term = c('a', 'b', 'c'), weight = c(2, 2, 3))
+  expect_identical(read.dic(dict), list(`2` = c('a', 'b'), `3` = 'c'))
+  expect_identical(read.dic(dict, as.weighted = TRUE), dict)
+  dict$category = c('c1', 'c2', 'c1')
+  expect_identical(read.dic(dict, as.weighted = TRUE), data.frame(term = dict$term, c1 = c(2, 0, 3), c2 = c(0, 2, 0)))
+  expect_identical(read.dic(rep('xxx', 3)), list(cat1 = rep('xxx', 3)))
 })
 
 test_that('lma_initdirs works', {
   options(lingmatch.dict.dir = '', lingmatch.lspace.dir = '')
+  if(!'lusi.dic' %in% list.files('~/Dictionaries')) expect_error(read.dic('lusi'))
+  if(!any(grepl('^glove', list.files('~/Latent Semantic Spaces')))) expect_error(lma_lspace('glove'))
   dir = tempdir()
   new = lma_initdirs(dir, link = FALSE)
   expect_equal(names(new), c('dict', 'lspace'))
@@ -221,6 +278,8 @@ test_that('lma_patcat wide dict format works', {
   expect_true(all(lma_patcat(text, pattern.weights = structure(dict, row.names = dict$term)) == manual))
   expect_true(all(lma_patcat(text, dict$term, dict) == manual))
   expect_true(all(lma_patcat(text, dict$term, pattern.categories = dict) == manual))
+  expect_identical(colnames(lma_patcat('', dict$term, pattern.categories = dict)), colnames(dict)[-1])
+  expect_true(ncol(lma_patcat('', dict$term, pattern.categories = dict, drop.zeros = TRUE)) == 0)
 })
 
 test_that('read.segments works', {

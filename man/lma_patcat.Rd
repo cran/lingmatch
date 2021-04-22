@@ -6,8 +6,9 @@
 \usage{
 lma_patcat(text, dict = NULL, pattern.weights = "weight",
   pattern.categories = "category", bias = NULL, to.lower = TRUE,
-  return.dtm = FALSE, exclusive = TRUE, boundary = NULL, fixed = TRUE,
-  globtoregex = FALSE, name.map = c(intname = "_intercept", term = "term"),
+  return.dtm = FALSE, drop.zeros = FALSE, exclusive = TRUE,
+  boundary = NULL, fixed = TRUE, globtoregex = FALSE,
+  name.map = c(intname = "_intercept", term = "term"),
   dir = getOption("lingmatch.dict.dir"))
 }
 \arguments{
@@ -29,7 +30,9 @@ on the intercept included in each category (defined by \code{name.map['intname']
 \item{to.lower}{Logical indicating whether \code{text} should be converted to lowercase before processing.}
 
 \item{return.dtm}{Logical; if \code{TRUE}, only a document-term matrix will be returned, rather than the
-summed and biased category values.}
+weighted, summed, and biased category values.}
+
+\item{drop.zeros}{logical; if \code{TRUE}, categories or terms with no matches will be removed.}
 
 \item{exclusive}{Logical; if \code{FALSE}, each dictionary term is searched for in the original text.
 Otherwise (by default), terms are sorted by length (with longer terms being searched for first), and
@@ -41,8 +44,8 @@ terms are left as entered.}
 
 \item{fixed}{Logical; if \code{FALSE}, patterns are treated as regular expressions.}
 
-\item{globtoregex}{Logical; if \code{TRUE}, initial and terminal asterisks are replaced with \code{\\\\b\\\\w`*`}
-and \code{\\\\w`*`\\\\b} respectively. This will also set \code{fixed} to \code{FALSE} unless fixed is specified.}
+\item{globtoregex}{Logical; if \code{TRUE}, initial and terminal asterisks are replaced with \code{\\\\b\\\\w*}
+and \code{\\\\w*\\\\b} respectively. This will also set \code{fixed} to \code{FALSE} unless fixed is specified.}
 
 \item{name.map}{A named character vector:
 \itemize{
@@ -58,7 +61,9 @@ or only some can be specified by name (e.g., \code{c(term =} \code{'patterns')})
 }
 \value{
 A matrix with a row per \code{text} and columns per dictionary category, or (when \code{return.dtm = TRUE})
-a sparse matrix with a row per \code{text} and column per term.
+a sparse matrix with a row per \code{text} and column per term. Includes a \code{WC} attribute with original
+word counts, and a \code{categories} attribute with row indices associated with each category if
+\code{return.dtm = TRUE}.
 }
 \description{
 Categorize raw texts using a pattern-based dictionary.
@@ -104,6 +109,17 @@ lma_patcat(
 tempori = read.csv('https://wwbp.org/downloads/public_data/temporalOrientationLexicon.csv')
 
 lma_patcat(text, tempori)
+
+# or use the standardized version
+tempori_std = read.dic('wwbp_prospection', dir = '~/Dictionaries')
+
+lma_patcat(text, tempori_std)
+
+## get scores on the same scale by adjusting the standardized values
+tempori_std[, -1] = tempori_std[, -1] / 100 *
+  select.dict('wwbp_prospection')$selected[, 'original_max']
+
+lma_patcat(text, tempori_std)[, unique(tempori$category)]
 }
 }
 \seealso{

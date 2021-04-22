@@ -183,6 +183,7 @@ lingmatch=function(input=NULL,comp=mean,data=NULL,group=NULL,...,comp.data=NULL,
   }
   mets = c('jaccard', 'euclidean', 'canberra', 'cosine', 'pearson')
   inp$metric = if(!is.null(inp$metric)) match_metric(inp$metric)$selected else 'cosine'
+  if(!length(inp$metric) || is.null(inp$metric) || inp$metric == '') inp$metric = 'cosine'
   vs=c('input','comp','group','order','data','comp.data','comp.group')
   opt=as.list(match.call(expand.dots=FALSE))[vs]
   names(opt)=vs
@@ -744,7 +745,8 @@ lingmatch=function(input=NULL,comp=mean,data=NULL,group=NULL,...,comp.data=NULL,
 #' may matter if you plan on categorizing with categories that have terms with look- ahead/behind assertions
 #' (like LIWC dictionaries). Otherwise, other methods may be faster, more memory efficient, and/or more featureful.
 #' @return A sparse matrix (or regular matrix if \code{sparse = FALSE}), with a row per \code{text},
-#' and column per term.
+#' and column per term, or a list if \code{tokens.only = TRUE}. Includes an attribute with options (\code{opts}),
+#' and attributes with word count (\code{WC}) and column sums (\code{colsums}) if \code{tokens.only = FALSE}.
 #' @examples
 #' text = c(
 #'   "Why, hello there! How are you this evening?",
@@ -759,13 +761,20 @@ lingmatch=function(input=NULL,comp=mean,data=NULL,group=NULL,...,comp.data=NULL,
 lma_dtm = function(text, exclude = NULL, context = NULL, replace.special = TRUE, numbers = FALSE,
   punct = FALSE, urls = TRUE, emojis = FALSE, to.lower = TRUE, word.break = ' +', dc.min = 0,
   dc.max = Inf, sparse = TRUE, tokens.only = FALSE){
+  if(!is.null(dim(text))){
+    if(is.character(text[, 1]) || is.factor(text[, 1])){
+      text = text[, 1]
+    }else stop('enter a vector of texts as the first argument')
+  }
   if(is.list(text) && all(c('tokens', 'indices') %in% names(text))){
     m = do.call(rbind, lapply(seq_along(text$indices), function(i){
-      inds = as.factor(text$indices[[i]])
-      cbind(i, as.integer(levels(inds)), tabulate(inds))
+      if(length(text$indices[[i]])){
+        inds = as.factor(text$indices[[i]])
+        cbind(i, as.integer(levels(inds)), tabulate(inds))
+      }
     }))
-    dtm = sparseMatrix(m[, 1], m[, 2], x = m[, 3], dimnames = list(NULL,
-      if(is.character(text$tokens)) text$tokens else names(text$tokens)))
+    dtm = sparseMatrix(m[, 1], m[, 2], x = m[, 3], dims = c(length(text$indices), length(text$tokens)),
+      dimnames = list(NULL, if(is.character(text$tokens)) text$tokens else names(text$tokens)))
     if(!sparse) dtm = as.matrix(dtm)
     attr(dtm, 'colsums') = text$frequencies
     attr(dtm, 'type') = 'count'
@@ -836,24 +845,46 @@ lma_dtm = function(text, exclude = NULL, context = NULL, replace.special = TRUE,
   text = strsplit(text, word.break)
   words = sort(unique(unlist(text)))
   words = words[!words == '']
+  if(!is.null(exclude)){
+    if(is.list(exclude)) exclude = unlist(exclude, use.names = FALSE)
+    if(!any(grepl('^', exclude, fixed = TRUE))) exclude = gsub('\\^\\*|\\*\\$', '', paste0('^', exclude, '$'))
+    if(any(ck <- grepl('[[({]', exclude) + grepl('[})]|\\]', exclude) == 1))
+      exclude[ck] = gsub('([([{}\\])])', '\\\\\\1', exclude[ck], perl = TRUE)
+    words = grep(paste(exclude, collapse = '|'), words, value = TRUE, invert = TRUE)
+  }
   if(tokens.only){
     m = match_terms(
       text, words, !grepl('^[[:punct:]]$|^repellipsis$', words),
       c(length(text), length(words)), is.null(exclude), TRUE
     )
     names(m) = c('tokens', 'frequencies', 'WC', 'indices')
-    m$tokens = m$tokens + 1
+    m$tokens = m$tokens + 1L
     m$tokens = sort(m$tokens)
-    names(m$frequencies) = names(m$tokens)
-    m$indices = unname(split(m$indices + 1, rep(seq_along(text), m$WC)))
-  }else{
-    if(!is.null(exclude)){
-      if(is.list(exclude)) exclude = unlist(exclude, use.names = FALSE)
-      if(!any(grepl('^', exclude, fixed = TRUE))) exclude = gsub('\\^\\*|\\*\\$', '', paste0('^', exclude, '$'))
-      if(any(ck <- grepl('[[({]', exclude) + grepl('[})]|\\]', exclude) == 1))
-        exclude[ck] = gsub('([([{}\\])])', '\\\\\\1', exclude[ck], perl = TRUE)
-      words = grep(paste(exclude, collapse = '|'), words, value = TRUE, invert = TRUE)
+    m$indices = unname(split(m$indices + 1L, rep(seq_along(text), m$WC)))
+    if(dc.min > 0 || dc.max < Inf){
+      su = m$frequencies > dc.min & m$frequencies < dc.max
+      if(any(!su)){
+        if(!any(su)){
+          warning(
+            'document count bounds [', dc.min, ', ', dc.max, '] exlcuded all terms, so they were ignored',
+            call. = FALSE
+          )
+        }else{
+          m$frequencies = m$frequencies[su]
+          ex = m$tokens[!su]
+          m$tokens = m$tokens[su]
+          new_inds = structure(seq_along(m$tokens), names = m$tokens)
+          m$tokens[] = new_inds
+          for(i in seq_along(m$indices)){
+            inds = m$indices[[i]]
+            m$indices[[i]] = unname(new_inds[as.character(inds[!inds %in% ex])])
+            m$WC[i] = length(m$indices[[i]])
+          }
+        }
+      }
     }
+    names(m$frequencies) = names(m$tokens)
+  }else{
     msu = match_terms(
       text, words, !grepl('^[[:punct:]]$|^repellipsis$', words),
       c(length(text), length(words)), is.null(exclude), FALSE
@@ -861,7 +892,14 @@ lma_dtm = function(text, exclude = NULL, context = NULL, replace.special = TRUE,
     m = if(sparse) as(msu[[1]], 'dgCMatrix') else as.matrix(msu[[1]])
     su = msu[[3]] > dc.min & msu[[3]] < dc.max
     names(msu[[3]]) = words
-    if(any(!su)) m = m[, su]
+    if(any(!su)){
+      if(!any(su)){
+        warning(
+          'document count bounds [', dc.min, ', ', dc.max, '] exlcuded all terms, so they were ignored',
+          call. = FALSE
+        )
+      }else m = m[, su, drop = FALSE]
+    }
     attr(m, 'WC') = unlist(msu[[2]], use.names = FALSE)
     attr(m, 'colsums') = msu[[3]]
     attr(m, 'type') = 'count'
@@ -910,15 +948,15 @@ lma_dtm = function(text, exclude = NULL, context = NULL, replace.special = TRUE,
 #'     Log of binary term sum.
 #'
 #'     \item \strong{\code{entropy}} \cr
-#'     \code{1 - rowSums(x *} \code{log(x + 1, log.base) /} \code{log(ncol(x),} \code{log.base), na.rm = TRUE)} \cr
+#'     \code{1 - rowSums(x *} \code{log(x + 1, log.base) /} \code{log(ncol(x), log.base),} \code{na.rm = TRUE)} \cr
 #'     Where \code{x = t(dtm) / colSums(dtm > 0)}; entropy of term-conditional term distribution.
 #'
 #'     \item \strong{\code{ppois}} \cr
-#'     \code{1 - ppois(alpha,} \code{colSums(dtm) / nrow(dtm))} \cr
+#'     \code{1 - ppois(pois.x,} \code{colSums(dtm) / nrow(dtm))} \cr
 #'     Poisson-predicted term distribution.
 #'
 #'     \item \strong{\code{dpois}} \cr
-#'     \code{1 - dpois(alpha, colSums(dtm) / nrow(dtm))} \cr
+#'     \code{1 - dpois(pois.x, colSums(dtm) / nrow(dtm))} \cr
 #'     Poisson-predicted term density.
 #'
 #'     \item \strong{\code{dfmlog}} \cr
@@ -958,9 +996,9 @@ lma_dtm = function(text, exclude = NULL, context = NULL, replace.special = TRUE,
 #' @param log.base The base of logs, applied to any weight using \code{\link[base]{log}}.
 #'   Default is 10.
 #' @param alpha A scaling factor applied to document frequency as part of pointwise mutual
-#'   information weighting, or amplify's power (\code{dtm ^ alpha}, which defaults to 1.1), or the
-#'   specified quantile of the poisson distribution (\code{dpois(alpha,}
-#'   \code{colSums(x,} \code{na.rm = TRUE) /} \code{nrow(x))}).
+#'   information weighting, or amplify's power (\code{dtm ^ alpha}, which defaults to 1.1).
+#' @param pois.x integer; quantile or probability of the poisson distribution (\code{dpois(pois.x,
+#'   colSums(x,} \code{na.rm = TRUE) / nrow(x))}).
 #' @param doc.only Logical: if \code{TRUE}, only document weights are returned (a single value for
 #'   each term).
 #' @param percent Logical; if \code{TRUE}, frequencies are multiplied by 100.
@@ -983,7 +1021,7 @@ lma_dtm = function(text, exclude = NULL, context = NULL, replace.special = TRUE,
 #' not apply any document weight, and document weights alone will apply a \code{'count'} term weight
 #' (unless \code{doc.only = TRUE}, in which case a term-named vector of document weights is returned
 #' instead of a weighted dtm).
-#' @return A weighted version of \code{dtm}.
+#' @return A weighted version of \code{dtm}, with a \code{type} attribute added (\code{attr(dtm, 'type')}).
 #' @examples
 #' # visualize term and document weights
 #'
@@ -1030,7 +1068,7 @@ lma_dtm = function(text, exclude = NULL, context = NULL, replace.special = TRUE,
 #' @export
 
 lma_weight = function(dtm, weight = 'count', normalize = TRUE, wc.complete = TRUE,
-  log.base = 10, alpha = 1, doc.only = FALSE, percent = FALSE){
+  log.base = 10, alpha = 1, pois.x = 1L, doc.only = FALSE, percent = FALSE){
   if(is.null(dim(dtm))) dtm = if(is.character(dtm) || is.factor(dtm)) lma_dtm(dtm) else matrix(dtm, 1)
   ck = attr(dtm, 'type')
   if(!is.null(ck) && length(ck) == 3 && (ck[1] == 'TRUE' || ck[2] != 'count' || ck[3] != 'NA')){
@@ -1088,8 +1126,8 @@ lma_weight = function(dtm, weight = 'count', normalize = TRUE, wc.complete = TRU
         dfmlog = log(diag(x[max.col(t(x)),]), base = log.base),
         idf = log(nrow(x) / colSums(x > 0, na.rm = TRUE), base = log.base),
         normal = sqrt(1 / colSums(x ^ 2, na.rm = TRUE)),
-        dpois = 1 - dpois(alpha, colSums(x, na.rm = TRUE) / nrow(x)),
-        ppois = 1 - ppois(alpha, colSums(x, na.rm = TRUE) / nrow(x)),
+        dpois = 1 - dpois(pois.x, colSums(x, na.rm = TRUE) / nrow(x)),
+        ppois = 1 - ppois(pois.x, colSums(x, na.rm = TRUE) / nrow(x)),
         ridf = doc(x, 'idf') - log(doc(x, 'dpois'), base = log.base),
         entropy = {
           x = t(x) / colSums(x > 0, na.rm = TRUE)
@@ -1106,7 +1144,7 @@ lma_weight = function(dtm, weight = 'count', normalize = TRUE, wc.complete = TRU
     }
     if(grepl('^(?:t|na|non|f)', weight[1])) weight[1] = 'count'
     tws = c('binary', 'log', 'sqrt', 'count', 'amplify')
-    tw = grep(substr(weight[1], 0, 4), tws, value = TRUE)[1]
+    tw = if(weight[1] == '') 'count' else grep(substr(weight[1], 0, 4), tws, value = TRUE)[1]
     pdw = TRUE
     dws = c('df', 'dflog', 'dfmax', 'dfmlog', 'idf', 'normal', 'dpois', 'ppois', 'ridf', 'entropy')
     if(is.na(tw)){
@@ -1117,9 +1155,10 @@ lma_weight = function(dtm, weight = 'count', normalize = TRUE, wc.complete = TRU
           dw = tw
           tw = 'count'
         }else return(doc(dtm, tw))
-      }else stop(paste(weight), ' is not a recognized weight', call. = FALSE)
+      }else stop(paste(weight, collapse = ' * '), ' is not a recognized weight', call. = FALSE)
     }
     if(pdw) dw = if(length(weight) > 1) grep(substr(weight[2], 0, 4), dws, value = TRUE)[1] else 'none'
+    if(is.na(dw)) dw = 'none'
     if(missing(alpha) && tw == 'amplify') alpha = 1.1
     dtm = if(dw == 'none') term(dtm, tw) else term(dtm, tw) * rep(doc(dtm, dw), each = nr)
   }
@@ -1169,7 +1208,7 @@ lma_weight = function(dtm, weight = 'count', normalize = TRUE, wc.complete = TRU
 #' dimensions, decided here by \code{dim.cutoff}).
 #'
 #' Mapping a new dtm into a latent semantic space consists of multiplying common terms:
-#' \code{dtm[, ct] \%*\% space[ct,]}, where \code{ct} \code{=} \code{colnames(dtm)[colnames(dtm)}
+#' \code{dtm[, ct]} \code{\%*\% space[ct,]}, where \code{ct} \code{=} \code{colnames(dtm)[colnames(dtm)}
 #' \code{\%in\%} \code{rownames(space)]} -- the terms common between the dtm and the space. This
 #' results in a matrix with documents as rows, and dimensions as columns, replacing terms.
 #' @family Latent Semantic Space functions
@@ -1203,21 +1242,25 @@ lma_weight = function(dtm, weight = 'count', normalize = TRUE, wc.complete = TRU
 #'
 #' \dontrun{
 #'
+#' # specify a directory containing spaces,
+#' # or where you would like to download spaces
+#' space_dir = '~/Latent Semantic Spaces'
+#'
 #' # map to a pretrained space
-#' ddm = lma_lspace(dtm, '100k')
+#' ddm = lma_lspace(dtm, '100k', dir = space_dir)
 #'
 #' # load the matching subset of the space
 #' # without mapping
-#' lss_100k_part = lma_lspace(colnames(dtm), '100k')
+#' lss_100k_part = lma_lspace(colnames(dtm), '100k', dir = space_dir)
 #'
 #' ## or
-#' lss_100k_part = lma_lspace(dtm, '100k', map.space = FALSE)
+#' lss_100k_part = lma_lspace(dtm, '100k', map.space = FALSE, dir = space_dir)
 #'
 #' # load the full space
-#' lss_100k = lma_lspace('100k')
+#' lss_100k = lma_lspace('100k', dir = space_dir)
 #'
 #' ## or
-#' lss_100k = lma_lspace(space = '100k')
+#' lss_100k = lma_lspace(space = '100k', dir = space_dir)
 #'
 #' }
 #' @export
@@ -1226,7 +1269,7 @@ lma_lspace = function(dtm = '', space, map.space = TRUE, fill.missing = FALSE, t
   dim.cutoff = .5, keep.dim = FALSE, use.scan = FALSE, dir = getOption('lingmatch.lspace.dir')){
   if(ckd <- dir == '') dir = '~/Latent Semantic Spaces'
   if(is.character(dtm) || is.factor(dtm)){
-    if(length(dtm) > 1 && missing(space)){
+    if(length(dtm) > 1 && missing(space) && any(grepl(' ', dtm, fixed = TRUE))){
       dtm = lma_dtm(dtm)
     }else if(length(dtm) == 1 && dtm != ''){
       if(missing(use.scan)) use.scan = TRUE
@@ -1244,7 +1287,7 @@ lma_lspace = function(dtm = '', space, map.space = TRUE, fill.missing = FALSE, t
     s$v = t(s$v)
     k = cumsum(s$d) / sum(s$d)
     if(dim.cutoff > 1) dim.cutoff = 1
-    k = seq_len(if(any(k < dim.cutoff)) which(k >= dim.cutoff)[1] else 1)
+    k = if(length(k) == 1) 1 else seq_len(if(any(k < dim.cutoff)) which(k >= dim.cutoff)[1] else 1)
     if(keep.dim){
       dtm[] = s$u[, k] %*% (if(length(k) == 1) matrix(s$d[k]) else diag(s$d[k])) %*% s$v[k,]
     }else{
@@ -1258,7 +1301,7 @@ lma_lspace = function(dtm = '', space, map.space = TRUE, fill.missing = FALSE, t
       dtm
     }else colnames(dtm)
     if(is.character(space)){
-      if(space == 'default') space = '100k'
+      if(space == 'default') space = '100k_lsa'
       name = gsub('^.*[/\\]|\\.[^/\\]*$', '', space)[1]
       spaces = list.files(dir)
       ts = grep(space, spaces, fixed = TRUE, value = TRUE)
@@ -1268,7 +1311,8 @@ lma_lspace = function(dtm = '', space, map.space = TRUE, fill.missing = FALSE, t
           'would you like to download the ', ts, ' space? (press Enter for yes): ')))){
           download.lspace(ts, dir = dir)
           ts = paste0(ts, '.dat')
-        }else stop('space (', space, ') not found in dir (', dir, ')', call. = FALSE)
+        }else stop('space (', space, ') not found in dir (', dir, ')',
+          if(ckd) '\nspecify a directory (e.g., dir = "~") to locate or download; see ?download.lspace', call. = FALSE)
       }
       space_path = normalizePath(paste0(dir, '/', if(length(su <- grep('\\.dat$', ts))) ts[su[[1]]] else{
         use.scan = TRUE
@@ -1385,9 +1429,11 @@ lma_lspace = function(dtm = '', space, map.space = TRUE, fill.missing = FALSE, t
 #'   vectors in \code{dict}, used to weight the terms in each \code{dict} vector. If a category in
 #'   \code{dict} is not specified in \code{term.weights}, or the \code{dict} and \code{term.weights}
 #'   vectors aren't the same length, the weights for that category will be 1.
-#' @param bias A list or named vector specifying a constant to add to the named category. If an
-#'   '_intercept' is included in a category, it will be removed from the category, and the associated
-#'   \code{weight} will be used as the \code{bias} for that category.
+#' @param bias A list or named vector specifying a constant to add to the named category. If a term
+#'   matching \code{bias.name} is included in a category, it's associated \code{weight} will be used
+#'   as the \code{bias} for that category.
+#' @param bias.name A character specifying a term to be used as a category bias; default is
+#'   \code{'_intercept'}.
 #' @param escape Logical indicating whether the terms in \code{dict} should not be treated as plain
 #'   text (including asterisk wild cards). If \code{TRUE}, regular expression related characters are
 #'   escaped. Set to \code{TRUE} if you get PCRE compilation errors.
@@ -1403,14 +1449,16 @@ lma_lspace = function(dtm = '', space, map.space = TRUE, fill.missing = FALSE, t
 #' @param term.break If a category has more than \code{term.break} characters, it will be processed
 #'   in chunks. Reduce from 20000 if you get a PCRE compilation error.
 #' @param dir Path to a folder in which to look for \code{dict}; \cr
-#'   will look in '~/Dictionaries' by default. \cr
+#'   will look in \code{'~/Dictionaries'} by default. \cr
 #'   Set a session default with \code{options(lingmatch.dict.dir = 'desired/path')}.
 #' @seealso For applying pattern-based dictionaries (to raw text) see \code{\link{lma_patcat}}.
 #' @family Dictionary functions
-#' @return A matrix with a row per \code{dtm} row and columns per dictionary category.
+#' @return A matrix with a row per \code{dtm} row and columns per dictionary category, and a \code{WC} attribute
+#' with original word counts.
 #' @examples
-#' # Score texts with the NRC Affect Intensity Lexicon
 #' \dontrun{
+#'
+#' # Score texts with the NRC Affect Intensity Lexicon
 #'
 #' dict = readLines('https://saifmohammad.com/WebDocs/NRC-AffectIntensity-Lexicon.txt')
 #' dict = read.table(
@@ -1436,19 +1484,26 @@ lma_lspace = function(dtm = '', space, map.space = TRUE, fill.missing = FALSE, t
 #'
 #' emotion_scores = lma_termcat(text, dict)
 #' if(require('splot')) splot(emotion_scores ~ names(text), leg = 'out')
+#'
+#' ## or use the standardized version (which includes more categories)
+#'
+#' emotion_scores = lma_termcat(text, 'nrc_eil', dir = '~/Dictionaries')
+#' emotion_scores = emotion_scores[, c('anger', 'fear', 'joy', 'sadness')]
+#' if(require('splot')) splot(emotion_scores ~ names(text), leg = 'out')
 #' }
 #' @export
 
-lma_termcat=function(dtm, dict, term.weights = NULL, bias = NULL, escape = TRUE, partial = FALSE,
-  glob = TRUE, term.filter = NULL, term.break = 2e4, to.lower = FALSE, dir = getOption('lingmatch.dict.dir')){
+lma_termcat=function(dtm, dict, term.weights = NULL, bias = NULL, bias.name = '_intercept',
+  escape = TRUE, partial = FALSE, glob = TRUE, term.filter = NULL, term.break = 2e4,
+  to.lower = FALSE, dir = getOption('lingmatch.dict.dir')){
   st=proc.time()[[3]]
   if(ckd <- dir == '') dir = '~/Dictionaries'
   if(missing(dict)) dict = lma_dict(1:9)
   if(is.factor(dict)) dict = as.character(dict)
-  if(is.character(dict) && length(dict) == 1 && missing(term.weights) && !grepl('[\\s*]', dict)){
-    if(!any(file.exists(dict)) && any(file.exists(normalizePath(paste0(dir, '/', dict), '/', FALSE))))
+  if(is.character(dict) && length(dict) == 1 && missing(term.weights) && (file.exists(dict) || !grepl('\\s', dict))){
+    if(!file.exists(dict) && any(file.exists(normalizePath(paste0(dir, '/', dict), '/', FALSE))))
       dict = normalizePath(paste0(dir, '/', dict))
-    td = tryCatch(read.dic(dict), error = function(e) NULL)
+    td = tryCatch(read.dic(dict, dir = if(ckd) '' else dir), error = function(e) NULL)
     dict = if(is.null(td)) list(cat1 = dict) else td
   }
   if(!is.null(dim(dict))){
@@ -1490,7 +1545,8 @@ lma_termcat=function(dtm, dict, term.weights = NULL, bias = NULL, escape = TRUE,
   }
   if(is.factor(dict)) dict = as.character(dict)
   if(!is.null(dim(term.weights))){
-    if(is.null(colnames(term.weights))) colnames(term.weights) = paste0('cat', seq_len(ncol(term.weights)))
+    if(is.null(colnames(term.weights))) colnames(term.weights) =
+      if(length(dict) == length(term.weights)) names(dict) else  paste0('cat', seq_len(ncol(term.weights)))
     if(!is.data.frame(term.weights)) term.weights = as.data.frame(term.weights, stringsAsFactors = FALSE)
     su = vapply(term.weights, is.numeric, TRUE)
     if(any(!su)){
@@ -1502,8 +1558,17 @@ lma_termcat=function(dtm, dict, term.weights = NULL, bias = NULL, escape = TRUE,
   }
   if(!is.list(dict)) dict = if(is.matrix(dict)) as.data.frame(dict, stringsAsFactors = FALSE) else
     if(is.character(dict) && length(dict) == 1 && (file.exists(dict) || dict %in% rownames(select.dict()$info)))
-      read.dic(dict) else list(dict)
-  if(is.list(dict) && is.null(names(dict))) names(dict) = paste0('cat', seq_along(dict))
+      read.dic(dict, dir = if(ckd) '' else dir) else list(dict)
+  if(is.list(dict)){
+    if(is.null(names(dict))){
+      tn = if(!is.null(colnames(term.weights))) colnames(term.weights) else names(term.weights)
+      names(dict) = if(!is.null(tn) && length(tn) == length(dict)) tn else paste0('cat', seq_along(dict))
+    }else if(any(su <- names(dict) == '')){
+      names(dict)[su] = if(sum(su) == 1) 'cat_unnamed' else paste0('cat_unnamed', seq_len(sum(su)))
+      if(!is.null(term.weights) && any(su <- names(term.weights) == ''))
+        names(term.weights)[su] = if(sum(su) == 1) 'cat_unnamed' else paste0('cat_unnamed', seq_len(sum(su)))
+    }
+  }else dict = list(dict)
   if(!is.null(term.weights)){
     if(is.null(dim(term.weights))){
       if(is.list(term.weights)){
@@ -1520,24 +1585,19 @@ lma_termcat=function(dtm, dict, term.weights = NULL, bias = NULL, escape = TRUE,
             term.weights[[cat]] = structure(rep(1, length(dict[[cat]])), names = dict[[cat]])
       }else{
         if(is.null(names(term.weights))){
-          if(is.list(dict)){
-            if(length(dict[[1]]) == length(term.weights)){
-              term.weights = list(term.weights)
-              names(term.weights) = names(dict)
-              names(term.weights[[1]]) = dict[[1]]
-            }else{
-              term.weights = NULL
-              warning('term.weights were dropped as they could not be aligned with dict')
-            }
-          }else if(length(term.weights) == length(dict)) names(term.weights) = dict else{
-            if(length(term.weights) != 1) warning('term.weights were adjusted to match the length of dict')
-            term.weights = rep_len(term.weights)
-            names(term.weights) = dict
+          if(length(dict[[1]]) == length(term.weights)){
+            term.weights = list(term.weights)
+            names(term.weights) = names(dict)
+            names(term.weights[[1]]) = dict[[1]]
+          }else{
+            term.weights = NULL
+            warning('term.weights were dropped as they could not be aligned with dict')
           }
         }
       }
     }else{
-      if(length(dict) == 1 && length(dict[[1]]) == nrow(term.weights) && !any(rownames(term.weights) %in% dict[[1]])){
+      if(length(dict) == 1 && length(dict[[1]]) == nrow(term.weights) &&
+          !any(grepl('[a-z]', rownames(term.weights), TRUE))){
         if(is.factor(dict[[1]])) dict[[1]] = as.character(dict[[1]])
         if(anyDuplicated(dict[[1]])){
           dt = unique(dict[[1]][duplicated(dict[[1]])])
@@ -1564,10 +1624,10 @@ lma_termcat=function(dtm, dict, term.weights = NULL, bias = NULL, escape = TRUE,
     if(is.null(names(cat))) as.character(cat) else names(cat) else cat)
   if(!is.null(bias) && is.null(names(bias)))
     names(bias) = if(length(bias) == length(dict)) names(dict) else seq_along(bias)
-  for(n in names(dict)) if(!n %in% names(bias) && any(ii <- !is.na(dict[[n]]) & dict[[n]] == '_intercept')){
-    dict[[n]] = dict[[n]][!ii]
+  if(!is.null(names(term.weights)) && length(names(term.weights)) == length(dict)) names(dict) = names(term.weights)
+  for(n in names(dict)) if(!n %in% names(bias) && any(ii <- !is.na(dict[[n]]) & dict[[n]] == bias.name)){
     bias[n] = term.weights[[n]][ii]
-    term.weights[[n]] = term.weights[[n]][!ii]
+    term.weights[[n]][ii] = 0
   }
   dict_chars = list(
     all = paste(unique(strsplit(paste0(unique(unlist(dict, use.names = FALSE)), collapse = ''), '')[[1]]),
@@ -1663,7 +1723,7 @@ lma_termcat=function(dtm, dict, term.weights = NULL, bias = NULL, escape = TRUE,
     for(cat in seq_along(dict)){
       ccls = tryCatch(nchar(dict[[cat]]), error = function(e) NULL)
       if(is.null(ccls)){
-        warning('dict appears to be miss-encoded, so results may not be as expected;\n',
+        warning('dict appears to be misencoded, so results may not be as expected;\n',
           'might try reading the dictionary in with encoding = "latin1"')
         dict[[cat]] = iconv(dict[[cat]], sub = '#')
         ccls = nchar(dict[[cat]])
@@ -1731,12 +1791,17 @@ lma_termcat=function(dtm, dict, term.weights = NULL, bias = NULL, escape = TRUE,
       dict = formatdict(dict)
       op = vapply(names(dict), function(cat) rowSums(dtm[, grep(dict[[cat]], ws, perl = TRUE),
         drop = FALSE], na.rm = TRUE), numeric(nrow(dtm)))
+      if(nrow(dtm) == 1){
+        op = t(op)
+        rownames(op) = 1
+      }
     }
   }
   if(!is.null(bias)) for(n in names(bias)) if(n %in% colnames(op)) op[, n] = op[, n] + bias[[n]]
-  attr(op,'WC')=if('WC'%in%atsn) ats$WC else rowSums(dtm,na.rm=TRUE)
+  attr(op, 'WC') = if('WC' %in% atsn) ats$WC else if(all(vapply(seq_len(ncol(dtm)), function(i)
+    is.numeric(dtm[, i]) || is.integer(dtm[, i]), TRUE))) rowSums(dtm, na.rm = TRUE) else NULL
   attr(op, 'time') = c(attr(dtm, 'time'), termcat = proc.time()[[3]] - st)
-  if('type'%in%atsn) attr(op,'type')=ats$type
+  if('type' %in% atsn) attr(op, 'type') = ats$type
   op
 }
 
@@ -1747,7 +1812,8 @@ match_metric = function(x){
       stop('only internal metrics are available: ', paste(mets, collapse = ', '), call. = FALSE)
     }else{
       if(is.numeric(x)) mets[x] else{
-        su = grepl('^cor', x)
+        if(is.call(x)) x = eval(x)
+        su = grepl('^(?:cor|r)', x, TRUE)
         if(any(su)) x[su] = 'pearson'
         unique(unlist(lapply(substr(x, 1, 3), grep, mets, fixed = TRUE, value = TRUE)))
       }
@@ -1805,7 +1871,7 @@ match_metric = function(x){
 #'       specified, or \code{mean = TRUE}, and only one metric is requested.
 #'     \item \strong{Out:} A data.frame with a column per metric. \cr
 #'       \strong{In:} When multiple metrics are requested in the previous case.
-#'     \item \strong{Out:} A sparse matrix. \cr
+#'     \item \strong{Out:} A sparse matrix with a \code{metric} attribute with the metric name. \cr
 #'       \strong{In:} Pairwise comparisons within an \code{a} matrix or between
 #'       an \code{a} and \code{b} matrix, when only 1 metric is requested.
 #'     \item \strong{Out:} A list with a sparse matrix per metric. \cr
@@ -1845,6 +1911,8 @@ lma_simets=function(a, b = NULL, metric = NULL, group = NULL, lag = 0, agg = TRU
     b = NULL
   }
   met = match_metric(metric)
+  if(!length(met$selected)) stop('no recognized metric; should match one of ',
+    paste0(mets, collapse = ', '), ', or all')
   st = proc.time()[[3]]
   slots = c('i', 'p', 'x', 'Dim')
   if((is.character(a) || is.factor(a)) && any(grepl('[a-zA-Z]', a))) a = lma_dtm(a) else

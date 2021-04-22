@@ -5,7 +5,8 @@
 \title{Document-Term Matrix Weighting}
 \usage{
 lma_weight(dtm, weight = "count", normalize = TRUE, wc.complete = TRUE,
-  log.base = 10, alpha = 1, doc.only = FALSE, percent = FALSE)
+  log.base = 10, alpha = 1, pois.x = 1L, doc.only = FALSE,
+  percent = FALSE)
 }
 \arguments{
 \item{dtm}{A matrix with words as column names.}
@@ -43,15 +44,15 @@ lma_weight(dtm, weight = "count", normalize = TRUE, wc.complete = TRUE,
     Log of binary term sum.
 
     \item \strong{\code{entropy}} \cr
-    \code{1 - rowSums(x *} \code{log(x + 1, log.base) /} \code{log(ncol(x),} \code{log.base), na.rm = TRUE)} \cr
+    \code{1 - rowSums(x *} \code{log(x + 1, log.base) /} \code{log(ncol(x), log.base),} \code{na.rm = TRUE)} \cr
     Where \code{x = t(dtm) / colSums(dtm > 0)}; entropy of term-conditional term distribution.
 
     \item \strong{\code{ppois}} \cr
-    \code{1 - ppois(alpha,} \code{colSums(dtm) / nrow(dtm))} \cr
+    \code{1 - ppois(pois.x,} \code{colSums(dtm) / nrow(dtm))} \cr
     Poisson-predicted term distribution.
 
     \item \strong{\code{dpois}} \cr
-    \code{1 - dpois(alpha, colSums(dtm) / nrow(dtm))} \cr
+    \code{1 - dpois(pois.x, colSums(dtm) / nrow(dtm))} \cr
     Poisson-predicted term density.
 
     \item \strong{\code{dfmlog}} \cr
@@ -95,9 +96,10 @@ frequencies can be based on the raw count (default; \code{wc.complete = TRUE}). 
 Default is 10.}
 
 \item{alpha}{A scaling factor applied to document frequency as part of pointwise mutual
-information weighting, or amplify's power (\code{dtm ^ alpha}, which defaults to 1.1), or the
-specified quantile of the poisson distribution (\code{dpois(alpha,}
-\code{colSums(x,} \code{na.rm = TRUE) /} \code{nrow(x))}).}
+information weighting, or amplify's power (\code{dtm ^ alpha}, which defaults to 1.1).}
+
+\item{pois.x}{integer; quantile or probability of the poisson distribution (\code{dpois(pois.x,
+colSums(x,} \code{na.rm = TRUE) / nrow(x))}).}
 
 \item{doc.only}{Logical: if \code{TRUE}, only document weights are returned (a single value for
 each term).}
@@ -105,7 +107,7 @@ each term).}
 \item{percent}{Logical; if \code{TRUE}, frequencies are multiplied by 100.}
 }
 \value{
-A weighted version of \code{dtm}.
+A weighted version of \code{dtm}, with a \code{type} attribute added (\code{attr(dtm, 'type')}).
 }
 \description{
 Weight a document-term matrix.

@@ -35,15 +35,20 @@
 lma_process = function(input = NULL, ..., meta = TRUE){
   inp = as.list(substitute(...()))
   funs = c('read.segments', 'lma_dtm', 'lma_weight', 'lma_lspace', 'lma_termcat', 'lma_patcat')
-  arg_matches = lapply(funs, function(f){
+  allargs = NULL
+  arg_matches = list()
+  for(f in funs){
     a = names(as.list(args(f)))
-    a = a[-c(1, length(a))]
-    inp[a[a %in% names(inp)]]
-  })
-  names(arg_matches) = funs
+    a = a[c(FALSE, a[-1] %in% names(inp))]
+    allargs = c(allargs, a)
+    arg_matches[[f]] = inp[a]
+  }
+  dupargs = unique(allargs[duplicated(allargs)])
+  arg_checks = vapply(arg_matches, function(l) sum(!names(l) %in% dupargs), 0)
   # identify input
   op = NULL
   if(is.function(input)) stop('enter a character vector or matrix-like object as input')
+  if(is.null(dim(input)) && is.list(input) && is.character(input[[1]])) input = unlist(input, use.names = FALSE)
   if(is.character(input) || is.factor(input)){
     ck_paths = length(input) != 1 && all(file.exists(input))
     op = if(length(arg_matches$read.segments) || ck_paths){
@@ -54,15 +59,18 @@ lma_process = function(input = NULL, ..., meta = TRUE){
       text = if(length(input) == 1 && file.exists(input)) readLines(input) else input, stringsAsFactors = FALSE
     )
   }else{
-    if(is.null(dim(input))) input = as.data.frame(input, stringsAsFactors = FALSE)
+    if(is.null(dim(input))){
+      if(is.null(names(input)) || (is.list(input) && !all(vapply(input, length, 0) == length(input[[1]]))))
+        stop('input is not of a recognized format -- should be text or a dtm-like object')
+      input = if(is.list(input)) as.data.frame(input, stringsAsFactors = FALSE) else t(input)
+    }
     op = input
   }
   # process
   ck_text = 'text' %in% colnames(op)
   ck_changed = FALSE
   if(ck_text){
-    if(!length(arg_matches$lma_dtm) && length(arg_matches$lma_patcat) &&
-        any(!names(arg_matches$lma_patcat) %in% names(arg_matches$lma_termcat))){
+    if(arg_checks[['lma_patcat']]){
       if(!'return.dtm' %in% names(arg_matches$lma_patcat) && length(arg_matches$lma_weight))
         arg_matches$lma_patcat$return.dtm = TRUE
       arg_matches$lma_patcat$text = op[, 'text']
@@ -74,7 +82,7 @@ lma_process = function(input = NULL, ..., meta = TRUE){
       ck_changed = TRUE
     }
   }else x = op
-  if(length(arg_matches$lma_weight)){
+  if(arg_checks[['lma_weight']]){
     arg_matches$lma_weight$dtm = x
     x = do.call(lma_weight, lapply(arg_matches$lma_weight, eval.parent, 2))
     attr(x, 'categories') = attr(arg_matches$lma_weight$dtm, 'categories')
@@ -89,25 +97,28 @@ lma_process = function(input = NULL, ..., meta = TRUE){
     for(cat in names(categories)) xc[, cat] = rowSums(x[, categories[[cat]], drop = FALSE], na.rm = TRUE)
     x = xc
     ck_changed = TRUE
-  }else if(length(arg_matches$lma_termcat)){
+  }else if(arg_checks[['lma_termcat']] || (length(arg_matches$lma_termcat) &&
+      any(names(arg_matches$lma_termcat) != 'dir'))){
     arg_matches$lma_termcat$dtm = x
     x = do.call(lma_termcat, lapply(arg_matches$lma_termcat, eval.parent, 2))
     ck_changed = TRUE
   }
-  if(length(arg_matches$lma_lspace)){
+  if(arg_checks[['lma_lspace']]){
     nr = NROW(x)
     arg_matches$lma_lspace$dtm = x
     x = do.call(lma_lspace, lapply(arg_matches$lma_lspace, eval.parent, 2))
-    colnames(x) = paste0('dim', seq_len(ncol(x)))
-    if(nrow(x) != nr) return(x)
+    if(nrow(x) != nr){
+      colnames(x) = paste0('dim', seq_len(ncol(x)))
+      return(x)
+    }
     ck_changed = TRUE
   }
   if(any(grepl('Matrix', class(x), fixed = TRUE))) x = as.matrix(x)
   if(is.matrix(x)) x = as.data.frame(x, stringsAsFactors = FALSE)
-  op = if(ck_text && ck_changed) cbind(op, x) else x
+  op = if(ck_text && ck_changed) cbind(op, if(is.null(dim(x))) t(x) else x) else x
   if(ck_text && meta){
     opm = lma_meta(op[, 'text'])
-    if(length(arg_matches$lma_weight) &&
+    if(arg_checks[['lma_weight']] &&
       (!'normalize' %in% names(arg_matches$lma_weight) || arg_matches$lma_weight$normalize)){
       cols = c(9, 14:23)
       opm_counts = opm[, cols]
@@ -155,6 +166,8 @@ to_regex = function(dict, intext = FALSE){
 #' @param dir Path to a folder containing dictionaries, or where you would like dictionaries to be downloaded;
 #'   passed to \code{\link{select.dict}} and/or \code{\link{download.dict}}.
 #' @param ... Passes arguments to \code{\link{readLines}}.
+#' @param term.name,category.name Strings identifying column names in \code{path} containing terms and categories
+#'   respectively.
 #' @return \code{read.dic}: A \code{list} (unweighted) with an entry for each category containing
 #'   character vectors of terms, or a \code{data.frame} (weighted) with columns for terms (first, "term") and
 #'   weights (all subsequent, with category labels as names).
@@ -162,7 +175,8 @@ to_regex = function(dict, intext = FALSE){
 #' @importFrom utils read.table write.table
 #' @export
 
-read.dic = function(path, cats, type = 'asis', as.weighted = FALSE, dir = getOption('lingmatch.dict.dir'), ...){
+read.dic = function(path, cats, type = 'asis', as.weighted = FALSE, dir = getOption('lingmatch.dict.dir'), ...,
+  term.name = 'term', category.name = 'category'){
   if(ckd <- dir == '') dir = '~/Dictionaries'
   if(missing(path)) path = file.choose()
   if(is.character(path) && !any(file.exists(path)) &&
@@ -173,14 +187,19 @@ read.dic = function(path, cats, type = 'asis', as.weighted = FALSE, dir = getOpt
     if(nrow(tp$selected) && length(path) <= nrow(tp$info)){
       if(any(tp$selected$downloaded == '')){
          td = rownames(tp$selected)[tp$selected$downloaded == '']
-         if(grepl('^$|^[yt1]|^ent', readline(paste0(
+         if(!ckd && grepl('^$|^[yt1]|^ent', readline(paste0(
            'would you like to download ', if(length(td) == 1) 'this dictionary' else 'these dictionaries', '?:\n',
            sub(',(?=[^,]+$)', if(length(td) == 2) ' and' else ', and', paste0(td, collapse = ', '), perl = TRUE),
            '\n(press Enter for yes): '
-         )))) tp$selected[td, 'downloaded'] = download.dict(td, dir = if(ckd) '' else dir)
+         )))) tp$selected[td, 'downloaded'] = unlist(download.dict(td, dir = dir), use.names = FALSE)
       }
       path = tp$selected[tp$selected[, 'downloaded'] != '', 'downloaded']
-      if(!length(path)) stop('none of the selected dictionaries are downloaded')
+      if(!length(path)) stop(
+        if(nrow(tp$selected) == 1) 'dictionary' else 'dictionaries', ' (',
+        paste(rownames(tp$selected), collapse = ', '), ') not found in dir (', dir, ')',
+        if(ckd) '\nspecify a directory (e.g., dir = "~") to locate or download; see ?download.dict',
+        call. = FALSE
+      )
     }
   }
   if(is.character(path) && length(path) > 1 && any(file.exists(path))){
@@ -194,9 +213,9 @@ read.dic = function(path, cats, type = 'asis', as.weighted = FALSE, dir = getOpt
   if(!is.null(dim(path))){
     if(anyNA(path)) path[is.na(path)] = 0
     cats = colnames(path)
-    if('term' %in% cats){
-      terms = path[, 'term']
-      cats = cats[cats != 'term']
+    if(term.name %in% cats){
+      terms = path[, term.name]
+      cats = cats[cats != term.name]
     }else if(!is.null(rownames(path)) && any(grepl('[a-z]', rownames(path), TRUE))){
       terms = rownames(path)
     }else{
@@ -210,26 +229,65 @@ read.dic = function(path, cats, type = 'asis', as.weighted = FALSE, dir = getOpt
         }else stop('no non-numeric columns found in path')
       }else{
         if(length(su) > 1){
-          ssu = vapply(su, function(col) !anyDuplicated(path[, col]), TRUE)
-          if(any(!ssu)) cats = path[, su[which(!ssu)[[1]]]]
-          su = if(any(ssu)) su[which(ssu)[[1]]] else su[[1]]
+          ssu = vapply(su, function(col) if(!anyDuplicated(path[, col])) 1 else
+            if(all(path[, col] == path[1, col])) 0 else 2, 0)
+          if(length(su) == ncol(path) && !any(ssu == 0)){
+            path = data.frame(
+              term = unlist(path[, su], use.names = FALSE),
+              category = rep(colnames(path), each = nrow(path))
+            )
+            category.name = cats = 'category'
+            su = 1
+          }else{
+            if(any(ssu == 2)){
+              cats = colnames(path)[su[which(ssu == 2)]]
+              if(length(cats) > 1 && length(su) != ncol(path)) cats = cats[1]
+            }
+            su = if(any(ssu == 1)) su[which(ssu == 1)[[1]]] else su[[1]]
+          }
         }
         terms = path[, su]
       }
     }
-    if('category' %in% colnames(path)) cats = path[, 'category']
-    if(length(cats) == nrow(path)){
-      wl = split(terms, cats)
+    if(category.name %in% colnames(path)){
+      su = which(vapply(cats, function(cat) is.numeric(path[, cat]), TRUE))
+      cats = path[, category.name]
+      if(length(su) == 1){
+        weights = path[, names(su)]
+        wl = data.frame(term = terms)
+        v = numeric(nrow(path))
+        for(cat in unique(cats)){
+          su = cats == cat
+          v[su] = weights[su]
+          wl[, cat] = v
+          v[] = 0
+        }
+      }else wl = split(terms, cats)
     }else{
-      su = vapply(cats, function(col) !is.numeric(path[, col]) && anyDuplicated(path[, col]), TRUE)
-      wl = if(any(su)){
-        split(terms, path[, names(which(su))[[1]]])
+      su = vapply(cats, function(col)
+        if(is.numeric(path[, col])) 1 else if(anyDuplicated(path[, col]))
+          if(!all(path[, col] == path[1, col])) 2 else 3 else 0, 0)
+      wl = if(!1 %in% su && any(su == 2) && any(su != 2)){
+        cats = cats[su == 2]
+        wl = lapply(cats, function(cat) split(terms, path[, cat]))
+        names(wl) = cats
+        wl
       }else{
-        cats = cats[vapply(cats, function(cat) is.numeric(path[, cat]), TRUE)]
-        if(!length(cats)) stop('no numeric columns found in path')
-        if(as.weighted){
-          cbind(term = terms, path[, cats, drop = FALSE])
+        if(!any(su == 1)){
+          if(any(su > 1)){
+            cats = cats[su > 1]
+            if(length(cats) == 1){
+              split(terms, path[, cats])
+            }else{
+              wl = lapply(cats, function(cat) split(terms, path[, cat]))
+              names(wl) = cats
+              unlist(wl, FALSE)
+            }
+          }else stop('no numeric columns found in path')
+        }else if(as.weighted){
+          cbind(term = terms, path[, cats[su == 1], drop = FALSE])
         }else{
+          cats = cats[su == 1]
           if(length(cats) == 1){
             weights = path[, cats]
             if(any(weights < 0) && any(weights > 0)){
@@ -256,11 +314,7 @@ read.dic = function(path, cats, type = 'asis', as.weighted = FALSE, dir = getOpt
               names(wl) = cats
               wl = Filter(length, wl)
             }else{
-              wl = list()
-              for(r in seq_len(nrow(path))){
-                m = max(weights[r,])
-                if(m != 0) for(cat in cats[weights[r,] == m]) wl[[cat]] = c(wl[[cat]], terms[r])
-              }
+              wl = split(terms, colnames(weights)[max.col(weights, 'first')])
             }
             wl
           }
@@ -268,6 +322,7 @@ read.dic = function(path, cats, type = 'asis', as.weighted = FALSE, dir = getOpt
       }
     }
   }else if(is.list(path)){
+    path = Filter(length, path)
     if(all(vapply(path, function(d) is.character(d) || is.factor(d), TRUE))){
       wl = path
       if(is.null(names(wl))) names(wl) = paste0('cat', seq_along(wl))
@@ -281,30 +336,33 @@ read.dic = function(path, cats, type = 'asis', as.weighted = FALSE, dir = getOpt
         terms = NULL
         cats = NULL
         for(d in names(path)){
-          if(is.null(dim(path[[d]]))) path[[d]] = read.dic(path[[d]], as.weighted = TRUE)
-          if(!'term' %in% colnames(path[[d]])) path[[d]] = read.dic(path[[d]])
-          terms = unique(c(terms, path[[d]]$term))
-          cats = c(cats, paste0(d, '.', colnames(path[[d]])[-1]))
-        }
-        wl = as.data.frame(
-          matrix(0, length(terms), length(cats), dimnames = list(terms, cats)),
-          stringsAsFactors = FALSE
-        )
-        for(d in names(path)){
-          cats = colnames(path[[d]])[-1] = paste0(d, '.', colnames(path[[d]])[-1])
-          su = duplicated(path[[d]]$term)
-          if(any(su)){
-            su = path[[d]]$term %in% path[[d]]$term[su]
-            td = path[[d]][su,, drop = FALSE]
-            for(term in unique(td$term)) wl[term, cats] = colMeans(td[td$term == term, cats])
+          path[[d]] = read.dic(path[[d]], as.weighted = as.weighted)
+          if(as.weighted){
+            terms = unique(c(terms, path[[d]]$term))
+            cats = c(cats, paste0(d, '.', colnames(path[[d]])[-1]))
           }
-          if(any(!su)) path[[d]] = path[[d]][!su,]
-          rownames(path[[d]]) = path[[d]]$term
-          wl[path[[d]]$term, cats] = path[[d]][, cats]
         }
-        data.frame(term = rownames(wl), wl, stringsAsFactors = FALSE)
+        if(as.weighted){
+          wl = as.data.frame(
+            matrix(0, length(terms), length(cats), dimnames = list(terms, cats)),
+            stringsAsFactors = FALSE
+          )
+          for(d in names(path)){
+            cats = colnames(path[[d]])[-1] = paste0(d, '.', colnames(path[[d]])[-1])
+            su = duplicated(path[[d]]$term)
+            if(any(su)){
+              su = path[[d]]$term %in% path[[d]]$term[su]
+              td = path[[d]][su,, drop = FALSE]
+              for(term in unique(td$term)) wl[term, cats] = colMeans(td[td$term == term, cats])
+            }
+            if(any(!su)) path[[d]] = path[[d]][!su,]
+            rownames(path[[d]]) = path[[d]]$term
+            wl[path[[d]]$term, cats] = path[[d]][, cats]
+          }
+          data.frame(term = rownames(wl), wl, stringsAsFactors = FALSE)
+        }else unlist(path, FALSE)
       }else if(any(vapply(path, is.list, TRUE))){
-        do.call(c, path)
+        unlist(path, FALSE)
       }else{
         if(any(vapply(path, function(d) is.null(names(d)), TRUE))){
           if(all(vapply(path, length, 0) == length(path[[1]]))){
@@ -321,8 +379,12 @@ read.dic = function(path, cats, type = 'asis', as.weighted = FALSE, dir = getOpt
       }
     }
   }else{
-    di = if(length(path) != 1) path else if(file.exists(path)) readLines(path, warn = FALSE, ...) else
-      stop('assumed path is to a file, but ', path, ' it does not exist', call. = FALSE)
+    if(length(path) != 1){
+      di = path
+    }else{
+      di = tryCatch(readLines(path, warn = FALSE, ...), error = function(e) NULL)
+      if(is.null(di)) stop('assumed path (', path, ') is to a file, but failed to read it in', call. = FALSE)
+    }
     lst = grep('%', di, fixed = TRUE)
     if(length(lst) > 1 && !grepl(',', di[lst[1]], fixed = TRUE)){
       if(length(lst) < 2) stop('could not identify the end of the header -- ',
@@ -330,7 +392,7 @@ read.dic = function(path, cats, type = 'asis', as.weighted = FALSE, dir = getOpt
       lst = lst[2]
       h = grep('^\\d', gsub('^\\s+|\\s*%+\\s*|\\s+$', '', di[seq_len(lst)]), value = TRUE)
       ci = character()
-      for(cat in h) ci[sub('\\s.*$', '', cat)] = sub('^[^\\s]+\\s+', '', cat)
+      for(cat in h) ci[sub('\\s.*$', '', cat)] = sub('^[^\\s]+\\s+', '', cat, perl = TRUE)
       if(missing(cats)) cats = ci
       sep = if(grepl('\t', di[lst + 1], fixed = TRUE)) '\t' else '\\s'
       cb = paste0('(?:', sep, '+(?:', paste(names(ci), collapse = '|'), ')(?=', sep, '|$))*$')
@@ -341,12 +403,18 @@ read.dic = function(path, cats, type = 'asis', as.weighted = FALSE, dir = getOpt
       wl = wl[cats[cats %in% names(wl)]]
     }else{
       if(missing(as.weighted) && length(path) == 1) as.weighted = TRUE
-      wl = if(any(grepl('[\\s,]', di))) tryCatch(read.dic(
-        read.table(
+      wl = if(any(grepl('[\\s,]', di, perl = TRUE))){
+        di = read.table(
           text = di, header = TRUE, sep = if(grepl('\t', di[[1]])) '\t' else ',',
           quote = '"', comment.char = '', stringsAsFactors = FALSE
-        ), cats = cats, type = type, as.weighted = as.weighted
-      ), error = function(e) e$message) else list(cat1 = di)
+        )
+        if(!missing(as.weighted) || (!term.name %in% colnames(di) && !any(vapply(di, is.character, TRUE)) &&
+            !any(grepl('[a-z]', rownames(di), TRUE)))) di = tryCatch(
+          read.dic(di, cats = cats, type = type, as.weighted = as.weighted),
+          error = function(e) e$message
+        )
+        di
+      }else list(cat1 = di)
       if(length(wl) == 1 && is.character(wl))
         stop('assuming path is to a comma separated values file, but failed to read it in:\n', wl)
     }
@@ -388,11 +456,11 @@ read.dic = function(path, cats, type = 'asis', as.weighted = FALSE, dir = getOpt
 #' read.dic('murder.dic')
 #'
 #' # read in the Moral Foundations or LUSI dictionaries from urls
-#' moral_dict = read.dic('http://bit.ly/MoralFoundations2')
-#' lusi_dict = read.dic('http://bit.ly/lusi_dict')
+#' moral_dict = read.dic('https://osf.io/download/whjt2')
+#' lusi_dict = read.dic('https://www.depts.ttu.edu/psy/lusi/files/lusi_dict.txt')
 #'
 #' # save and read in a version of the General Inquirer dictionary
-#' inquirer = read.dic('inquirer')
+#' inquirer = read.dic('inquirer', dir = '~/Dictionaries')
 #' }
 #' @export
 
@@ -855,7 +923,7 @@ download.lspace = function(space = '100k_lsa', include.terms = TRUE, decompress 
 #'             all other terms, \code{[](){}*.^$+?\|} are counted as regex characters. These could be
 #'             escaped in R with \code{gsub('([][)(}{*.^$+?\\\\|])', '\\\\\\1', terms)} if \code{terms}
 #'             is a character vector, and in Python with (importing re)
-#'             \code{[re.sub(r'([][(){}*.^$+?\|])', r'\\\1', term) for term in terms]} if \code{terms}
+#'             \code{[re.sub(r'([][(){}*.^$+?\|])', r'\\\1', term)} \code{for term in terms]} if \code{terms}
 #'             is a list.
 #'           \item \strong{\code{categories}}: Category names in the order in which they appear in the dictionary
 #'             file, separated by commas.
@@ -896,7 +964,7 @@ select.dict = function(query = NULL, dir = getOption('lingmatch.dict.dir'),
       if(!length(sel <- grep(query, collapsed, TRUE)))
         sel <- grep(paste(strsplit(query, '[[:space:],|]+')[[1]], collapse = '|'), collapsed, TRUE)
     }
-    if(length(sel)) r$selected = r$info[sel,]
+    if(length(sel)) r$selected = r$info[sel,, drop = FALSE]
   }
   r
 }
@@ -918,7 +986,7 @@ select.dict = function(query = NULL, dir = getOption('lingmatch.dict.dir'),
 #' @examples
 #' \dontrun{
 #'
-#' download.dict('lusi')
+#' download.dict('lusi', dir = '~/Dictionaries')
 #' }
 #' @export
 
@@ -1077,16 +1145,17 @@ standardize.lspace = function(infile, name, sep = ' ', digits = 9, dir = getOpti
 #'   on the intercept included in each category (defined by \code{name.map['intname']}).
 #' @param to.lower Logical indicating whether \code{text} should be converted to lowercase before processing.
 #' @param return.dtm Logical; if \code{TRUE}, only a document-term matrix will be returned, rather than the
-#'   summed and biased category values.
+#'   weighted, summed, and biased category values.
 #' @param exclusive Logical; if \code{FALSE}, each dictionary term is searched for in the original text.
 #'   Otherwise (by default), terms are sorted by length (with longer terms being searched for first), and
 #'   matches are removed from the text (avoiding subsequent matches to matched patterns).
+#' @param drop.zeros logical; if \code{TRUE}, categories or terms with no matches will be removed.
 #' @param boundary A string to add to the beginning and end of each dictionary term. If \code{TRUE},
 #'   \code{boundary} will be set to \code{' '}, avoiding pattern matches within words. By default, dictionary
 #'   terms are left as entered.
 #' @param fixed Logical; if \code{FALSE}, patterns are treated as regular expressions.
-#' @param globtoregex Logical; if \code{TRUE}, initial and terminal asterisks are replaced with \code{\\\\b\\\\w`*`}
-#'   and \code{\\\\w`*`\\\\b} respectively. This will also set \code{fixed} to \code{FALSE} unless fixed is specified.
+#' @param globtoregex Logical; if \code{TRUE}, initial and terminal asterisks are replaced with \code{\\\\b\\\\w*}
+#'   and \code{\\\\w*\\\\b} respectively. This will also set \code{fixed} to \code{FALSE} unless fixed is specified.
 #' @param name.map A named character vector:
 #'   \itemize{
 #'     \item \strong{\code{intname}}: term identifying category biases within the term list;
@@ -1100,7 +1169,9 @@ standardize.lspace = function(infile, name, sep = ' ', digits = 9, dir = getOpti
 #' @seealso For applying term-based dictionaries (to a document-term matrix) see \code{\link{lma_termcat}}.
 #' @family Dictionary functions
 #' @return A matrix with a row per \code{text} and columns per dictionary category, or (when \code{return.dtm = TRUE})
-#' a sparse matrix with a row per \code{text} and column per term.
+#' a sparse matrix with a row per \code{text} and column per term. Includes a \code{WC} attribute with original
+#' word counts, and a \code{categories} attribute with row indices associated with each category if
+#' \code{return.dtm = TRUE}.
 #' @examples
 #' # example text
 #' text = c(
@@ -1142,12 +1213,23 @@ standardize.lspace = function(infile, name, sep = ' ', digits = 9, dir = getOpti
 #' tempori = read.csv('https://wwbp.org/downloads/public_data/temporalOrientationLexicon.csv')
 #'
 #' lma_patcat(text, tempori)
+#'
+#' # or use the standardized version
+#' tempori_std = read.dic('wwbp_prospection', dir = '~/Dictionaries')
+#'
+#' lma_patcat(text, tempori_std)
+#'
+#' ## get scores on the same scale by adjusting the standardized values
+#' tempori_std[, -1] = tempori_std[, -1] / 100 *
+#'   select.dict('wwbp_prospection')$selected[, 'original_max']
+#'
+#' lma_patcat(text, tempori_std)[, unique(tempori$category)]
 #' }
 #' @export
 
 lma_patcat = function(text, dict = NULL, pattern.weights = 'weight', pattern.categories = 'category', bias = NULL,
-  to.lower = TRUE, return.dtm = FALSE, exclusive = TRUE, boundary = NULL, fixed = TRUE, globtoregex = FALSE,
-  name.map = c(intname = '_intercept', term = 'term'), dir = getOption('lingmatch.dict.dir')){
+  to.lower = TRUE, return.dtm = FALSE, drop.zeros = FALSE, exclusive = TRUE, boundary = NULL, fixed = TRUE,
+  globtoregex = FALSE, name.map = c(intname = '_intercept', term = 'term'), dir = getOption('lingmatch.dict.dir')){
   if(is.factor(text)) text = as.character(text)
   if(!is.character(text)) stop('enter a character vector as the first argument')
   text = paste(' ', text, ' ')
@@ -1262,22 +1344,23 @@ lma_patcat = function(text, dict = NULL, pattern.weights = 'weight', pattern.cat
         if(all(pattern.weights %in% en)) dict[[pattern.weights]] else 1, stringsAsFactors = FALSE
     )
   }
+  if(any(lex$category == '')) lex[lex$category == '', 'category'] = 'cat_unnamed'
   if(is.factor(lex$term)) lex$term = as.character(lex$term)
   if(globtoregex){
     lex$term = to_regex(list(lex$term), TRUE)[[1]]
     if(missing(fixed)) fixed = FALSE
   }
   if(wide && return.dtm){
-    return.dtm = FALSE
-    warning('cannot return dtm when multiple weights are specified -- remove weights for a dtm')
+    wide = FALSE
+    lex = data.frame(term = lex$term, category = if(length(lex$category) == 1) lex$category else 'all')
   }
-  if(is.null(bias)){
+  if(!return.dtm && is.null(bias)){
     if(!'intname' %in% names(name.map)) name.map[['intname']] = '_intercept'
     if(any(su <- lex$term == name.map[['intname']])){
       if(wide){
         bias = structure(lex$weights[su,], names = lex$categories[su])
         lex$term = lex$term[!su]
-        lex$weights = lex$weights[!su,]
+        lex$weights = lex$weights[!su,, drop = FALSE]
       }else{
         bias = structure(lex[su, 'weights'], names = lex[su, 'category'])
         lex = lex[!su,]
@@ -1287,7 +1370,7 @@ lma_patcat = function(text, dict = NULL, pattern.weights = 'weight', pattern.cat
   if(exclusive){
     cls = tryCatch(-nchar(lex$term), error = function(e) NULL)
     if(is.null(cls)){
-      warning('dict appears to be miss-encoded, so results may not be as expected;\n',
+      warning('dict appears to be misencoded, so results may not be as expected;\n',
         'might try reading the dictionary in with encoding = "latin1"')
       lex$term = iconv(lex$term, sub = '#')
       cls = -nchar(lex$term)
@@ -1330,9 +1413,14 @@ lma_patcat = function(text, dict = NULL, pattern.weights = 'weight', pattern.cat
         lex$weights, stringsAsFactors = FALSE) else lex[lex$category == cat,]
       as.numeric(op[[1]][, l$term, drop = FALSE] %*% l$weights + bias[[cat]])
     }, numeric(length(text)))
+    if(length(text) == 1){
+      op[[1]] = t(op[[1]])
+      rownames(op[[1]]) = 1
+    }
   }
   attr(op[[1]], 'WC') = op[[2]]
   attr(op[[1]], 'time') = c(patcat = proc.time()[[3]] - st)
+  if(drop.zeros) op[[1]] = op[[1]][, colSums(op[[1]]) != 0, drop = FALSE]
   op[[1]]
 }
 
@@ -1419,7 +1507,7 @@ lma_meta = function(text){
     apostrophes = vapply(strsplit(text, "[\u02bc]+|[a-zA-Z][\u0027\u0060\u2019]+[a-zA-Z]"), length, 0) - 1,
     brackets = if(any(su <- grepl('[(\\)<>{\\}[]|\\]', terms))) rowSums(dtm[, su, drop = FALSE]) else 0,
     orgmarks = if(any(su <- grepl('[/:;-]', terms))) rowSums(dtm[, su, drop = FALSE]) else 0,
-    stringsAsFactors = FALSE
+    row.names = seq_len(nrow(res)), stringsAsFactors = FALSE
   )))
 }
 
@@ -1682,7 +1770,13 @@ lma_dict = function(..., as.regex = TRUE, as.function = FALSE){
         function(terms, ...){
           args = list(...)
           args$x = terms
-          if(!is.null(charmap)) args$x = chartr(charmap$from, charmap$to, args$x)
+          if(!is.null(charmap)){
+            args$x = tryCatch(chartr(charmap$from, charmap$to, args$x), error = function(e) NULL)
+            if(is.null(args$x)){
+              args$x = chartr(charmap$from, charmap$to, iconv(terms, sub = '#'))
+              warning('the input appears to be misencoded; it was converted, but may have errant #s')
+            }
+          }
           for(s in names(dict)){
             args$pattern = dict[s]
             args$replacement = s

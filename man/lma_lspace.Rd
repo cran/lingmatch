@@ -66,7 +66,7 @@ value decomposition of a dtm (\code{svd(dtm)$v[, 1:k]}, where \code{k} is the se
 dimensions, decided here by \code{dim.cutoff}).
 
 Mapping a new dtm into a latent semantic space consists of multiplying common terms:
-\code{dtm[, ct] \%*\% space[ct,]}, where \code{ct} \code{=} \code{colnames(dtm)[colnames(dtm)}
+\code{dtm[, ct]} \code{\%*\% space[ct,]}, where \code{ct} \code{=} \code{colnames(dtm)[colnames(dtm)}
 \code{\%in\%} \code{rownames(space)]} -- the terms common between the dtm and the space. This
 results in a matrix with documents as rows, and dimensions as columns, replacing terms.
 }
@@ -96,21 +96,25 @@ sapply(spaces, lma_simets, metric = 'cosine')
 
 \dontrun{
 
+# specify a directory containing spaces,
+# or where you would like to download spaces
+space_dir = '~/Latent Semantic Spaces'
+
 # map to a pretrained space
-ddm = lma_lspace(dtm, '100k')
+ddm = lma_lspace(dtm, '100k', dir = space_dir)
 
 # load the matching subset of the space
 # without mapping
-lss_100k_part = lma_lspace(colnames(dtm), '100k')
+lss_100k_part = lma_lspace(colnames(dtm), '100k', dir = space_dir)
 
 ## or
-lss_100k_part = lma_lspace(dtm, '100k', map.space = FALSE)
+lss_100k_part = lma_lspace(dtm, '100k', map.space = FALSE, dir = space_dir)
 
 # load the full space
-lss_100k = lma_lspace('100k')
+lss_100k = lma_lspace('100k', dir = space_dir)
 
 ## or
-lss_100k = lma_lspace(space = '100k')
+lss_100k = lma_lspace(space = '100k', dir = space_dir)
 
 }
 }

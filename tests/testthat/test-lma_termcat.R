@@ -36,6 +36,7 @@ test_that('bias works', {
   expect_equal(lma_termcat(dtm, list(a = category), list(a = category))[, 1], score)
   expect_equal(lma_termcat(dtm, sepcat$terms, sepcat$weights)[, 1], score)
   expect_equal(lma_termcat(dtm, sepcat$terms[-1], sepcat$weights[-1], 5)[, 1], score)
+  expect_equal(lma_termcat(dtm, as.data.frame(sepcat))[, 1], score)
 })
 
 test_that('escape works', {
@@ -105,7 +106,8 @@ test_that('wide dict format works', {
 })
 
 test_that('text input works', {
-  dict = vapply(1:50, function(i) paste(sample(words, 2, TRUE), collapse = ' '), '')
+  words = unique(sample(words, 150))
+  dict = paste(words[1:50], words[51:100])
   text = vapply(1:10, function(i) paste(sample(dict, 100, TRUE), collapse = ' '), '')
   dtm = lma_dtm(text)
   expect_equal(suppressWarnings(lma_termcat(text, dict)[, 1]), rowSums(dtm) / 2)
@@ -143,6 +145,13 @@ test_that('lma_termcat and lma_patcat are accurate', {
   expect_equal(as.numeric(as.matrix(lma_process(text, dict = dict)[, names(bias)])), as.numeric(manual))
   expect_equal(as.numeric(lma_termcat(text, dict)), as.numeric(manual))
   expect_identical(as.numeric(lma_patcat(text, dict)), as.numeric(manual))
+  dict[dict$category == 'a', 'category'] = ''
+  expect_equal(as.numeric(lma_termcat(text, dict)), as.numeric(manual))
+  expect_identical(as.numeric(lma_patcat(text, dict)), as.numeric(manual))
+  weights = split(dict$weight, dict$category)
+  dict = split(dict$term, dict$category)
+  expect_equal(as.numeric(lma_termcat(text, dict, weights)), as.numeric(manual))
+  expect_identical(as.numeric(lma_patcat(text, dict, weights)), as.numeric(manual))
 })
 
 textdir = '../'

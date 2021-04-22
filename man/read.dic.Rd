@@ -6,7 +6,8 @@
 \title{Read/Write Dictionary Files}
 \usage{
 read.dic(path, cats, type = "asis", as.weighted = FALSE,
-  dir = getOption("lingmatch.dict.dir"), ...)
+  dir = getOption("lingmatch.dict.dir"), ..., term.name = "term",
+  category.name = "category")
 
 write.dic(dict, filename, type = "asis", as.weighted = FALSE, save = TRUE)
 }
@@ -32,6 +33,9 @@ unweighted versions, or converts unweighted dictionaries to a binary weighted ve
 passed to \code{\link{select.dict}} and/or \code{\link{download.dict}}.}
 
 \item{...}{Passes arguments to \code{\link{readLines}}.}
+
+\item{term.name, category.name}{Strings identifying column names in \code{path} containing terms and categories
+respectively.}
 
 \item{dict}{A \code{list} with a named entry of terms for each category, or a \code{data.frame}
 with terms in one column, and categories or weights in the rest.}
@@ -74,11 +78,11 @@ write.dic(dict, 'murder')
 read.dic('murder.dic')
 
 # read in the Moral Foundations or LUSI dictionaries from urls
-moral_dict = read.dic('http://bit.ly/MoralFoundations2')
-lusi_dict = read.dic('http://bit.ly/lusi_dict')
+moral_dict = read.dic('https://osf.io/download/whjt2')
+lusi_dict = read.dic('https://www.depts.ttu.edu/psy/lusi/files/lusi_dict.txt')
 
 # save and read in a version of the General Inquirer dictionary
-inquirer = read.dic('inquirer')
+inquirer = read.dic('inquirer', dir = '~/Dictionaries')
 }
 }
 \seealso{

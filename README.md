@@ -11,8 +11,9 @@ An all-in-one R package for the assessment of linguistic matching and/or accommo
 ## resources
 * Documentation and guides: [miserman.github.io/lingmatch](https://miserman.github.io/lingmatch/)
   * [Quick start](https://miserman.github.io/lingmatch/#quick_start)
-  * [Introduction to text analysis](https://miserman.github.io/lingmatch/#text_analysis)
   * [Comparisons](https://miserman.github.io/lingmatch/#comparisons)
+  * [Introduction to text analysis](https://miserman.github.io/lingmatch/#text_analysis)
+  * [Text Classification](https://miserman.github.io/lingmatch/#classification)
   * [Word vectors](https://miserman.github.io/lingmatch/#word_vectors)
 * Dictionary repository: [osf.io/y6g5b](https://osf.io/y6g5b/wiki/home/)
 * Latent semantic space repository: [osf.io/489he](https://osf.io/489he/wiki/home/)
@@ -20,11 +21,11 @@ An all-in-one R package for the assessment of linguistic matching and/or accommo
 ## installation
 Download R from [r-project.org](https://www.r-project.org/), then install the package from an R console:
 
-Release ([version 1.0.0](https://CRAN.R-project.org/package=lingmatch))
+Release ([version 1.0.2](https://CRAN.R-project.org/package=lingmatch))
 ```R
 install.packages('lingmatch')
 ```
-Development (version 1.0.1)
+Development (version 1.0.3)
 ```R
 install.packages('remotes')
 remotes::install_github('miserman/lingmatch')
@@ -53,10 +54,10 @@ text = c(
 Process the texts in one step:
 ```R
 # with a dictionary
-inquirer_cats = lma_process(text, dict = 'inquirer')
+inquirer_cats = lma_process(text, dict = 'inquirer', dir = '~/Dictionaries')
 
 # with a latent semantic space
-glove_vectors = lma_process(text, space = 'glove')
+glove_vectors = lma_process(text, space = 'glove', dir = '~/Latent Semantic Spaces')
 ```
 
 Or process the texts step by step, then measure similarity between each:
@@ -71,10 +72,10 @@ Or do that within a single function call:
 ```R
 similarity = lingmatch(
   text, weight = 'frequency', dict = lma_dict(1:9), metric = 'canberra'
-)
+)$sim
 ```
 
 Or, if you want a standard form (as in this example), specify a default:
 ```R
-similarity = lingmatch(text, type = 'lsm')
+similarity = lingmatch(text, type = 'lsm')$sim
 ```
