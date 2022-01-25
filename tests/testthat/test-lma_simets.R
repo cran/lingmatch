@@ -43,6 +43,10 @@ test_that('many a to one b comparisons work', {
   expect_equal(as.numeric(as.matrix(sims_ab)), as.numeric(sims_m))
 })
 
+test_that('a vector to b matrix works', {
+  expect_equal(as.numeric(lma_simets(c(0, 1, 1), matrix(c(0, 0, 1, 1, 1, 0, 1, 1, 0), 3), 'cor')), c(1, 1, -1))
+})
+
 test_that('a row to b row comparisons work', {
   dtm = Matrix(rpois(200, .5), 4, sparse = TRUE)
   comp = Matrix(rpois(200, .5), 4, sparse = TRUE)
@@ -52,7 +56,7 @@ test_that('a row to b row comparisons work', {
 })
 
 test_that('text inputs and differing a-b columns works', {
-  words = vapply(1:50, function(i) paste(sample(letters, sample(7), TRUE), collapse = ''), '')
+  words = vapply(1:50, function(i) paste(sample(letters, sample.int(7, 1), TRUE), collapse = ''), '')
   text = vapply(1:10, function(i) paste(sample(words[seq(1, if(i < 5) 50 else 40)], 50, TRUE), collapse = ' '), '')
   dtm = lma_dtm(text[1:5])
   expect_equal(as.numeric(lma_simets(text[1:5], 'cos')), as.numeric(lma_simets(dtm, 'cos')))

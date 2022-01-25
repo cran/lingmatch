@@ -1,10 +1,16 @@
+# version 1.0.3
+
+### Bug Fixes
+* Fixes lma_simets vector to matrix comparisons in some cases.
+* Fixes lma_dtm tokens.only when one text ends up empty.
+
 # version 1.0.2
 
 ## Features
 * Adds options to specify term and category names in read.dic.
 * Adds an option to remove unmatched categories or terms in lma_patcat.
 
-## Improvements
+### Improvements
 * Improves input-handling of dictionaries.
 * Enables term exclusions for token-only lma_dtm.
 * Makes output formats more consistent.
@@ -12,7 +18,7 @@
 * Better handles unrecognized weight and metric names.
 * Handles inconsistently named dictionaries.
 
-## Bug Fixes
+### Bug Fixes
 * Fixes lma_dtm token to dtm conversion when final token indices entries are empty.
 * Appropriately allows read.dic to read urls.
 * Term weights correctly default to count given an empty weight.
@@ -23,6 +29,6 @@
 
 # version 1.0.1
 
-## Bug Fixes
+### Bug Fixes
 * Avoids a compilation issue on older macOS platforms.
 * Avoids factor-related issues when the stringsAsFactors option is TRUE.
