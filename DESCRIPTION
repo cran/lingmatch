@@ -1,7 +1,7 @@
 Package: lingmatch
 Type: Package
 Title: Linguistic Matching and Accommodation
-Version: 1.0.3
+Version: 1.0.4
 Author: Micah Iserman
 Maintainer: Micah Iserman <micah.iserman@gmail.com>
 Description: Measure similarity between texts. Offers a variety of processing
@@ -13,11 +13,11 @@ BugReports: https://github.com/miserman/lingmatch/issues
 Depends: R (>= 3.5), methods, Matrix
 Imports: Rcpp, RcppParallel
 License: GPL (>= 2)
-RoxygenNote: 7.1.2
+RoxygenNote: 7.2.1
 Suggests: knitr, rmarkdown, splot, testthat (>= 2.1.0)
 LinkingTo: Rcpp, RcppParallel
 SystemRequirements: C++11
 NeedsCompilation: yes
-Packaged: 2022-01-25 22:34:06 UTC; Admin
+Packaged: 2022-09-05 20:53:28 UTC; Admin
 Repository: CRAN
-Date/Publication: 2022-01-25 23:52:46 UTC
+Date/Publication: 2022-09-05 21:10:02 UTC
