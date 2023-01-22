@@ -153,8 +153,7 @@ lma_termcat <- function(dtm, dict, term.weights = NULL, bias = NULL, bias.name =
   if (!is.list(dict)) {
     dict <- if (is.matrix(dict)) {
       as.data.frame(dict, stringsAsFactors = FALSE)
-    } else
-    if (is.character(dict) && length(dict) == 1 && (file.exists(dict) || dict %in% rownames(select.dict()$info))) {
+    } else if (is.character(dict) && length(dict) == 1 && (file.exists(dict) || dict %in% rownames(select.dict()$info))) {
       read.dic(dict, dir = if (ckd) "" else dir)
     } else {
       list(dict)
@@ -479,23 +478,4 @@ lma_termcat <- function(dtm, dict, term.weights = NULL, bias = NULL, bias.name =
   attr(op, "time") <- c(attr(dtm, "time"), termcat = proc.time()[[3]] - st)
   if ("type" %in% atsn) attr(op, "type") <- ats$type
   op
-}
-
-match_metric <- function(x) {
-  mets <- c("jaccard", "euclidean", "canberra", "cosine", "pearson")
-  sel <- if (is.null(x) || (length(x) == 1 && grepl(tolower(substr(x, 1, 1)), "a", fixed = TRUE))) {
-    mets
-  } else if (is.function(x)) {
-    stop("only internal metrics are available: ", paste(mets, collapse = ", "), call. = FALSE)
-  } else {
-    if (is.numeric(x)) {
-      mets[x]
-    } else {
-      if (is.call(x)) x <- eval(x)
-      su <- grepl("^(?:cor|r)", x, TRUE)
-      if (any(su)) x[su] <- "pearson"
-      unique(unlist(lapply(substr(x, 1, 3), grep, mets, fixed = TRUE, value = TRUE)))
-    }
-  }
-  list(all = mets, selected = sel, dummy = as.integer(mets %in% sel))
 }

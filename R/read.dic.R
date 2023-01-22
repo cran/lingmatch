@@ -1,17 +1,3 @@
-to_regex <- function(dict, intext = FALSE) {
-  lapply(dict, function(l) {
-    l <- gsub("([+*])[+*]+", "\\\\\\1+", l)
-    if (any(ck <- grepl("[[({]", l) + grepl("[})]|\\]", l) == 1)) {
-      l[ck] <- gsub("([([{}\\])])", "\\\\\\1", l[ck], perl = TRUE)
-    }
-    if (intext) {
-      sub("^\\*", "\\\\\\b\\\\\\w*", sub("\\*$", "\\\\\\w*\\\\\\b", l, TRUE), TRUE)
-    } else {
-      gsub("\\^\\*|\\*\\$", "", paste0("^", l, "$"))
-    }
-  })
-}
-
 #' Read/Write Dictionary Files
 #'
 #' Read in or write dictionary files in Comma-Separated Values (.csv; weighted) or
@@ -116,8 +102,7 @@ read.dic <- function(path, cats, type = "asis", as.weighted = FALSE, dir = getOp
           ssu <- vapply(su, function(col) {
             if (!anyDuplicated(path[, col])) {
               1
-            } else
-            if (all(path[, col] == path[1, col])) 0 else 2
+            } else if (all(path[, col] == path[1, col])) 0 else 2
           }, 0)
           if (length(su) == ncol(path) && !any(ssu == 0)) {
             path <- data.frame(
@@ -384,7 +369,7 @@ read.dic <- function(path, cats, type = "asis", as.weighted = FALSE, dir = getOp
 #' }
 #' @export
 
-write.dic <- function(dict, filename, type = "asis", as.weighted = FALSE, save = TRUE) {
+write.dic <- function(dict, filename = NULL, type = "asis", as.weighted = FALSE, save = TRUE) {
   if (!is.list(dict) || is.data.frame(dict)) {
     if (save && (missing(as.weighted) || as.weighted)) {
       as.weighted <- TRUE
@@ -409,7 +394,7 @@ write.dic <- function(dict, filename, type = "asis", as.weighted = FALSE, save =
       o <- gsub("\t{2,}", "\t", paste(sub("\t+$", "", do.call(paste, c(m, sep = "\t"))), collapse = "\n"))
     }
   }
-  if (save) {
+  if (save && is.character(filename)) {
     filename <- filename[[1]]
     if (!grepl("\\.[^.]+$", filename)) filename <- paste0(filename, if (as.weighted) ".csv" else ".dic")
     if (as.weighted) {
