@@ -1,7 +1,7 @@
 Package: lingmatch
 Type: Package
 Title: Linguistic Matching and Accommodation
-Version: 1.0.5
+Version: 1.0.6
 Author: Micah Iserman
 Maintainer: Micah Iserman <micah.iserman@gmail.com>
 Description: Measure similarity between texts. Offers a variety of processing
@@ -15,9 +15,8 @@ Imports: Rcpp, RcppParallel
 License: GPL (>= 2)
 RoxygenNote: 7.2.3
 Suggests: knitr, rmarkdown, splot, testthat (>= 2.1.0)
-LinkingTo: Rcpp, RcppParallel
-SystemRequirements: C++11
+LinkingTo: Rcpp, RcppParallel, BH
 NeedsCompilation: yes
-Packaged: 2023-01-22 19:20:40 UTC; Admin
+Packaged: 2023-08-28 22:43:45 UTC; Admin
 Repository: CRAN
-Date/Publication: 2023-01-22 19:40:02 UTC
+Date/Publication: 2023-08-28 23:00:02 UTC

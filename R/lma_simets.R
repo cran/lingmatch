@@ -172,12 +172,13 @@ lma_simets <- function(a, b = NULL, metric = NULL, group = NULL, lag = 0, agg = 
           rbind(b[-seq_len(-lag), ], Matrix(0, -lag, d[4], sparse = TRUE))
         }
       }
-      calculate_similarities(a, b, if (((missing(pairwise) || !pairwise) && d[1] == d[3]) ||
+      type <- if (((missing(pairwise) || !pairwise) && d[1] == d[3]) ||
         d[3] == 1) {
         1
       } else {
         3
-      }, met$dummy)
+      }
+      calculate_similarities(a, b, type, met$dummy)
     }
   }
   if ("list" %in% class(res) && length(res)) {
@@ -185,7 +186,13 @@ lma_simets <- function(a, b = NULL, metric = NULL, group = NULL, lag = 0, agg = 
     if ((pairwise && symmetrical) || mean) {
       for (i in seq_along(res)) {
         if (pairwise && (symmetrical || mean)) res[[i]] <- forceSymmetric(res[[i]], "L")
-        if (mean) res[[i]] <- if (is.null(dim(res[[i]]))) mean(res[[i]], na.rm = TRUE) else rowMeans(res[[i]], TRUE)
+        if (mean) {
+          res[[i]] <- if (is.null(dim(res[[i]]))) {
+            mean(res[[i]], na.rm = TRUE)
+          } else {
+            (rowSums(res[[i]], TRUE) - 1) / (ncol(res[[i]]) - 1)
+          }
+        }
       }
     }
     if (is.null(dim(res[[1]]))) {
