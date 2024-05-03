@@ -7,7 +7,8 @@
 lma_termcat(dtm, dict, term.weights = NULL, bias = NULL,
   bias.name = "_intercept", escape = TRUE, partial = FALSE,
   glob = TRUE, term.filter = NULL, term.break = 20000,
-  to.lower = FALSE, dir = getOption("lingmatch.dict.dir"))
+  to.lower = FALSE, dir = getOption("lingmatch.dict.dir"),
+  coverage = FALSE)
 }
 \arguments{
 \item{dtm}{A matrix with terms as column names.}
@@ -52,15 +53,26 @@ always keep dictionary terms as entered.}
 \item{dir}{Path to a folder in which to look for \code{dict}; \cr
 will look in \code{'~/Dictionaries'} by default. \cr
 Set a session default with \code{options(lingmatch.dict.dir = 'desired/path')}.}
+
+\item{coverage}{Logical; if \code{TRUE}, will calculate coverage
+(number of unique term matches) for each category.}
 }
 \value{
-A matrix with a row per \code{dtm} row and columns per dictionary category, and a \code{WC} attribute
-with original word counts.
+A matrix with a row per \code{dtm} row and columns per dictionary category
+(with added \code{coverage_} versions if \code{coverage} is \code{TRUE}),
+and a \code{WC} attribute with original word counts.
 }
 \description{
 Reduces the dimensions of a document-term matrix by dictionary-based categorization.
 }
 \examples{
+dict <- list(category = c("cat", "dog", "pet*"))
+lma_termcat(c(
+  "cat, cat, cat, cat, cat, cat, cat, cat",
+  "a cat, dog, or anything petlike, really",
+  "petite petrochemical petitioned petty peter for petrified petunia petals"
+), dict, coverage = TRUE)
+
 \dontrun{
 
 # Score texts with the NRC Affect Intensity Lexicon
@@ -98,12 +110,14 @@ if (require("splot")) splot(emotion_scores ~ names(text), leg = "out")
 }
 }
 \seealso{
-For applying pattern-based dictionaries (to raw text) see \code{\link{lma_patcat}}.
+For applying pattern-based dictionaries (to raw text) see \code{\link{lma_patcat}()}.
 
 Other Dictionary functions: 
+\code{\link{dictionary_meta}()},
 \code{\link{download.dict}()},
 \code{\link{lma_patcat}()},
 \code{\link{read.dic}()},
+\code{\link{report_term_matches}()},
 \code{\link{select.dict}()}
 }
 \concept{Dictionary functions}

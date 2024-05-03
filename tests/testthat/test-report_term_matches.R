@@ -18,7 +18,15 @@ test_that("base example works", {
 })
 
 test_that("regex terms work", {
-  expect_identical(report_term_matches("ha[^i]+in.*?", text)$matches, "happenings (1), happiness (1)")
+  expect_identical(report_term_matches("ha[^i]+in.*?", text)$matches, "happiness (1), happenings (1)")
+})
+
+test_that("mixed terms work", {
+  cols <- c("count", "max_count", "variants")
+  expect_identical(
+    report_term_matches(c("ha[^i]+in.*?", "depress*"), text)[, cols],
+    as.data.frame(matrix(c(2L, 2L, 1L, 1L, 2L, 2L), 2, dimnames = list(NULL, cols)))
+  )
 })
 
 test_that("text as terms works", {
@@ -38,14 +46,24 @@ dir <- path.expand("~/Latent Semantic Spaces")
 map <- paste0(dir, "/lma_term_map.rda")
 files <- list.files(dir, "\\.dat$", full.names = TRUE)
 skip_if(
-  is.null(dir) || !dir.exists(dir) || !file.exists(map) ||
-    !length(files), "embeddings files not downloaded"
+  !dir.exists(dir) || !file.exists(map) || !length(files),
+  "embeddings files not downloaded"
 )
 
 found <- unlist(lapply(report$matches, colnames))
 spaces <- select.lspace(terms = found)
 space <- rownames(spaces$selected)[1]
 
-test_that("space works", {
-  expect_identical(report_term_matches(dict, text, space = TRUE)$space, rep(space, nrow(report)))
+test_that("space works with text", {
+  report <- report_term_matches(dict, text, space = TRUE)
+  expect_true(all(c("space", "mean_sim", "min_sim") %in% colnames(report)))
+  expect_identical(report$space[[1]], space)
+  expect_true(grepl("\\w \\(1, 1\\)", report$matches[[1]]))
+})
+
+test_that("space works without text", {
+  report <- report_term_matches(dict, space = space)
+  expect_true(all(c("space", "mean_sim", "min_sim") %in% colnames(report)))
+  expect_identical(report$space[[1]], space)
+  expect_true(grepl("\\w \\(1\\)", report$matches[[1]]))
 })

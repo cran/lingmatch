@@ -5,7 +5,7 @@
 \alias{write.dic}
 \title{Read/Write Dictionary Files}
 \usage{
-read.dic(path, cats, type = "asis", as.weighted = FALSE,
+read.dic(path, cats = NULL, type = "asis", as.weighted = FALSE,
   dir = getOption("lingmatch.dict.dir"), ..., term.name = "term",
   category.name = "category", raw = FALSE)
 
@@ -90,7 +90,7 @@ read.dic("murder.dic")
 
 # read in the Moral Foundations or LUSI dictionaries from urls
 moral_dict <- read.dic("https://osf.io/download/whjt2")
-lusi_dict <- read.dic("https://www.depts.ttu.edu/psy/lusi/files/lusi_dict.txt")
+lusi_dict <- read.dic("https://osf.io/download/29ayf")
 
 # save and read in a version of the General Inquirer dictionary
 inquirer <- read.dic("inquirer", dir = "~/Dictionaries")
@@ -98,9 +98,11 @@ inquirer <- read.dic("inquirer", dir = "~/Dictionaries")
 }
 \seealso{
 Other Dictionary functions: 
+\code{\link{dictionary_meta}()},
 \code{\link{download.dict}()},
 \code{\link{lma_patcat}()},
 \code{\link{lma_termcat}()},
+\code{\link{report_term_matches}()},
 \code{\link{select.dict}()}
 }
 \concept{Dictionary functions}

@@ -26,10 +26,11 @@ to_regex <- function(dict, intext = FALSE, isGlob = TRUE) {
   lapply(dict, function(l) {
     l <- gsub("([+*])[+*]+", "\\\\\\1+", sub("(?<=[^\\\\])\\\\$", "\\\\\\\\", l, perl = TRUE))
     if (isGlob) {
-      l <- gsub("([.^$?(){}[-]|\\])", "\\\\\\1", l, perl = TRUE)
-      if (!intext) l <- gsub("\\^\\*|\\*\\$", "", paste0("^", l, "$"))
-      l <- gsub("\\*", "[^\\\\s]*", l)
-    } else if (any(ck <- grepl("[[({]", l) + grepl("[})]|\\]", l) == 1)) {
+      if (any(ck <- grepl("(?:^|\\s+)\\*|(?<=\\w)\\*(?:$|\\s+)", l, perl = TRUE))) {
+        l[ck] <- gsub("\\*", "[^\\\\s]*", gsub("([.^$?(){}[-]|\\])", "\\\\\\1", l[ck], perl = TRUE))
+      }
+    }
+    if (any(ck <- grepl("[[({]", l) + grepl("[})]|\\]", l) == 1)) {
       l[ck] <- gsub("([([{}\\])])", "\\\\\\1", l[ck], perl = TRUE)
     }
     l
@@ -37,14 +38,14 @@ to_regex <- function(dict, intext = FALSE, isGlob = TRUE) {
 }
 
 download.resource <- function(
-    type, resource, include.terms = TRUE, decompress = TRUE,
+    type, resource, decompress = TRUE,
     check.md5 = TRUE, mode = "wb", dir = "", overwrite = FALSE) {
   if (dir == "") {
     stop(paste0(
       "specify a directory (dir), or set the ", type,
       " directory option\n(e.g., options(lingmatch.", type, ".dir = ",
       '"~/', if (type == "dict") "Dictionaries" else "Latent Semantic Space",
-      '")) or initialize it with lma_initdirs'
+      '"))\nor initialize it with lma_initdirs()'
     ), call. = FALSE)
   }
   all_resources <- rownames(if (type == "dict") dict_info else lss_info)
@@ -53,7 +54,7 @@ download.resource <- function(
     return(lapply(structure(resource, names = resource), function(d) {
       tryCatch(
         download.resource(
-          type = type, resource = d, include.terms = include.terms, decompress = decompress,
+          type = type, resource = d, decompress = decompress,
           check.md5 = check.md5, mode = mode, dir = dir
         ),
         error = function(e) e$message
@@ -110,7 +111,7 @@ download.resource <- function(
     status
   }
   if (type == "lspace") {
-    status <- if (include.terms) dl(lss_info[name, "osf_terms"], "_terms.txt") else 0
+    status <- dl(lss_info[name, "osf_terms"], "_terms.txt")
     if (status < 1) status <- dl(lss_info[name, "osf_dat"], ".dat.bz2")
     if (status < 1 && decompress) {
       if (Sys.which("bunzip2") == "") {

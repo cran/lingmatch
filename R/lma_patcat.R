@@ -35,7 +35,7 @@
 #'   or only some can be specified by name (e.g., \code{c(term =} \code{'patterns')}), leaving the rest default.
 #' @param dir Path to a folder in which to look for \code{dict} if it is the name of a file to be passed to
 #'   \code{\link{read.dic}}.
-#' @seealso For applying term-based dictionaries (to a document-term matrix) see \code{\link{lma_termcat}}.
+#' @seealso For applying term-based dictionaries (to a document-term matrix) see \code{\link{lma_termcat}()}.
 #' @family Dictionary functions
 #' @return A matrix with a row per \code{text} and columns per dictionary category, or (when \code{return.dtm = TRUE})
 #' a sparse matrix with a row per \code{text} and column per term. Includes a \code{WC} attribute with original
@@ -80,9 +80,10 @@
 #' \dontrun{
 #'
 #' # read in the temporal orientation lexicon from the World Well-Being Project
-#' tempori <- read.csv(
-#'   "https://wwbp.org/downloads/public_data/temporalOrientationLexicon.csv"
-#' )
+#' tempori <- read.csv(paste0(
+#'   "https://raw.githubusercontent.com/wwbp/lexica/master/",
+#'   "temporal_orientation/temporal_orientation_lexicon.csv"
+#' ))
 #'
 #' lma_patcat(text, tempori)
 #'
@@ -102,6 +103,7 @@
 lma_patcat <- function(text, dict = NULL, pattern.weights = "weight", pattern.categories = "category", bias = NULL,
                        to.lower = TRUE, return.dtm = FALSE, drop.zeros = FALSE, exclusive = TRUE, boundary = NULL, fixed = TRUE,
                        globtoregex = FALSE, name.map = c(intname = "_intercept", term = "term"), dir = getOption("lingmatch.dict.dir")) {
+  text_names <- names(text)
   if (is.factor(text)) text <- as.character(text)
   if (!is.character(text)) stop("enter a character vector as the first argument")
   text <- paste(" ", text, " ")
@@ -361,6 +363,7 @@ lma_patcat <- function(text, dict = NULL, pattern.weights = "weight", pattern.ca
       rownames(op[[1]]) <- 1
     }
   }
+  if (length(text_names) == nrow(op[[1]])) rownames(op[[1]]) <- text_names
   attr(op[[1]], "WC") <- op[[2]]
   attr(op[[1]], "time") <- c(patcat = proc.time()[[3]] - st)
   if (drop.zeros) op[[1]] <- op[[1]][, colSums(op[[1]]) != 0, drop = FALSE]

@@ -1,3 +1,17 @@
+# version 1.0.7
+
+### Features
+* Adds `dictionary_meta` to assess dictionary categories.
+* Adds dictionary category coverage reporting to `lma_termcat` and `lma_process`.
+
+### Bug Fixes
+* Correctly applies category selection in `read.dic` in more cases.
+
+### Improvements
+* Removes option to download embeddings without terms files; works toward
+  independence between spaces and term map.
+* Allows for direct weight discretization from a weighted list dictionary.
+
 # version 1.0.6
 
 ### Features
